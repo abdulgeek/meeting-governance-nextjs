@@ -38,6 +38,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [participants, setParticipants] = useState<Participant[]>([]);
 
   const [meetingUrl, setMeetingUrl] = useState("");
+  const [separate, setSeparate] = useState(true);
   const [botStatus, setBotStatus] = useState("");
   const [botErr, setBotErr] = useState("");
   const [botLaunched, setBotLaunched] = useState(false);
@@ -64,7 +65,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     if (!url) return;
     setBotErr("");
     try {
-      const r = await api.joinMeeting(id, url);
+      const r = await api.joinMeeting(id, url, separate);
       setBotStatus(r.status);
       setBotLaunched(true);
     } catch (err: any) {
@@ -176,6 +177,10 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           value={meetingUrl}
           onChange={(e) => setMeetingUrl(e.target.value)}
         />
+        <label className="hint" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="checkbox" checked={separate} onChange={(e) => setSeparate(e.target.checked)} />
+          Record each participant separately (per-speaker consent)
+        </label>
         <div className="controls" style={{ margin: 0 }}>
           <button className="btn-primary" onClick={joinBot} disabled={!meetingUrl.trim()}>
             Join bot

@@ -64,8 +64,8 @@ export const api = {
   getLines: (id: string): Promise<Line[]> => req(`/meetings/${id}/lines`),
   participants: (id: string): Promise<Participant[]> => req(`/meetings/${id}/participants`),
   shred: (id: string) => req(`/meetings/${id}/key`, { method: "DELETE" }),
-  joinMeeting: (id: string, meetingUrl: string): Promise<{ botId: string; status: string }> =>
-    req(`/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ meetingUrl }) }),
+  joinMeeting: (id: string, meetingUrl: string, separate = true): Promise<{ botId: string; status: string }> =>
+    req(`/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ meetingUrl, separate }) }),
   stopMeeting: (id: string): Promise<{ ok: boolean }> =>
     req(`/meetings/${id}/stop`, { method: "POST" }),
 };
