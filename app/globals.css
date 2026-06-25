@@ -25,6 +25,7 @@
   --brand-ink: #04211a;
   --accent: #22d3ee;
   --violet: #a78bfa;
+  --danger: 248 113 113;
 }
 
 .light {
@@ -45,6 +46,7 @@
   --brand-ink: #ffffff;
   --accent: #0891b2;
   --violet: #7c3aed;
+  --danger: 248 113 113;
 }
 
 @layer base {

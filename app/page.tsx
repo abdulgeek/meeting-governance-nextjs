@@ -33,6 +33,7 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [err, setErr] = useState("");
   const [ready, setReady] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -53,11 +54,13 @@ export default function Home() {
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
+    setCreating(true);
     try {
       const m = await api.createMeeting(title.trim() || "Untitled meeting");
       router.push(`/meeting/${m._id}`);
     } catch (e: any) {
       setErr(e.message);
+      setCreating(false);
     }
   }
 
@@ -82,7 +85,7 @@ export default function Home() {
 
   // ---- Logged in: dashboard ----
   return (
-    <AppShell userEmail={undefined} onLogout={logout}>
+    <AppShell onLogout={logout}>
       <div className="flex flex-col gap-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1.5">
@@ -107,13 +110,18 @@ export default function Home() {
             aria-label="New meeting title"
             className="sm:flex-1"
           />
-          <Button type="submit" icon={<Plus size={16} aria-hidden="true" />}>
+          <Button
+            type="submit"
+            icon={<Plus size={16} aria-hidden="true" />}
+            loading={creating}
+            disabled={creating}
+          >
             Start meeting
           </Button>
         </form>
 
         {err && (
-          <p className="text-sm text-[#F87171]" role="alert">
+          <p className="text-sm text-danger" role="alert">
             {err}
           </p>
         )}

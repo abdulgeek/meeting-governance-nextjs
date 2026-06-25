@@ -43,3 +43,6 @@ export type { HeroProps } from "./Hero";
 
 export { AppShell } from "./AppShell";
 export type { AppShellProps } from "./AppShell";
+
+export { ConfirmDialog } from "./ConfirmDialog";
+export type { ConfirmDialogProps } from "./ConfirmDialog";

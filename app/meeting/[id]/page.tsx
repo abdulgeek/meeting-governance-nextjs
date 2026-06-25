@@ -18,6 +18,7 @@ import {
   actionBorder,
   StatusDot,
   EmptyState,
+  ConfirmDialog,
 } from "../../components";
 
 type Decision = {
@@ -57,6 +58,9 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [botStatus, setBotStatus] = useState("");
   const [botErr, setBotErr] = useState("");
   const [botLaunched, setBotLaunched] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [confirmShred, setConfirmShred] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recRef = useRef(false);
@@ -71,30 +75,34 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     } catch {}
   }
   async function shred() {
-    if (typeof window !== "undefined" &&
-        !window.confirm("Crypto-shred this meeting? Its key is destroyed and all stored text becomes permanently unreadable.")) return;
     try { await api.shred(id); await refreshSaved(); } catch {}
   }
   async function joinBot() {
     const url = meetingUrl.trim();
     if (!url) return;
     setBotErr("");
+    setJoining(true);
     try {
       const r = await api.joinMeeting(id, url, separate);
       setBotStatus(r.status);
       setBotLaunched(true);
     } catch (err: any) {
       setBotErr(err.message || "join failed");
+    } finally {
+      setJoining(false);
     }
   }
   async function stopBot() {
     setBotErr("");
+    setStopping(true);
     try {
       await api.stopMeeting(id);
       setBotStatus("stopped");
       setBotLaunched(false);
     } catch (err: any) {
       setBotErr(err.message || "stop failed");
+    } finally {
+      setStopping(false);
     }
   }
 
@@ -174,6 +182,19 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     wsRef.current?.send(JSON.stringify({ type: "eou" }));
     setTimeout(refreshSaved, 1500); // pull the persisted line(s) after the decision lands
   };
+  // Keyboard parity for hold-to-talk: Space/Enter holds while pressed.
+  const onTalkKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      if (!e.repeat) start();
+    }
+  };
+  const onTalkKeyUp = (e: React.KeyboardEvent) => {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      stop();
+    }
+  };
 
   // Map the connection badge to a status tone for the live indicator.
   const connected = ready;
@@ -221,32 +242,60 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               Record each participant separately (per-speaker consent)
             </label>
             <div className="flex flex-wrap items-center gap-2.5">
-              <Button onClick={joinBot} disabled={!meetingUrl.trim()}>
+              <Button
+                onClick={joinBot}
+                disabled={!meetingUrl.trim() || joining}
+                loading={joining}
+              >
                 Join bot
               </Button>
-              <Button variant="ghost" onClick={stopBot} disabled={!botLaunched}>
+              <Button
+                variant="ghost"
+                onClick={stopBot}
+                disabled={!botLaunched || stopping}
+                loading={stopping}
+              >
                 Stop bot
               </Button>
               {botStatus && <Badge variant="neutral">{botStatus}</Badge>}
             </div>
-            <p className="text-[13px] leading-relaxed text-fg-subtle">
-              Admit &ldquo;Governance Bot&rdquo; in the call. It pins a chat message asking each
-              person to type &ldquo;+&rdquo; to allow their own recording — no reply means
-              they&rsquo;re not recorded.
-            </p>
-            {botErr && <p className="text-[13px] text-[#F87171]">{botErr}</p>}
+
+            <div className="rounded-2xl border border-border bg-elevated p-4">
+              <p className="mb-2.5 text-[13px] font-medium text-fg-muted">
+                How recording consent works
+              </p>
+              <ol className="flex flex-col gap-2 text-[13px] leading-relaxed text-fg-subtle">
+                <li className="flex gap-2.5">
+                  <ConsentStep>1</ConsentStep>
+                  The bot joins your call — admit &ldquo;Governance Bot&rdquo; like any guest.
+                </li>
+                <li className="flex gap-2.5">
+                  <ConsentStep>2</ConsentStep>
+                  It pins a chat message asking each person to reply with &ldquo;+&rdquo;.
+                </li>
+                <li className="flex gap-2.5">
+                  <ConsentStep>3</ConsentStep>
+                  Only people who reply are recorded — no reply means they are never transcribed.
+                </li>
+                <li className="flex gap-2.5">
+                  <ConsentStep>4</ConsentStep>
+                  Sensitive content is still redacted or dropped live, before it reaches storage.
+                </li>
+              </ol>
+            </div>
+            {botErr && <p className="text-[13px] text-danger">{botErr}</p>}
           </Card>
         </section>
 
         {/* Mic controls */}
         <section>
-          <Card className="flex flex-wrap items-center gap-4">
+          <Card className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center">
             <label className="flex items-center gap-2 text-sm text-fg-muted">
               Speaker
               <select
                 value={speaker}
                 onChange={(e) => setSpeaker(e.target.value)}
-                className="h-10 rounded-xl border border-border bg-elevated px-3 text-sm text-fg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:border-brand"
+                className="h-10 rounded-xl border border-border bg-elevated px-3 text-sm text-fg transition-colors duration-150 hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:border-brand"
               >
                 <option value="you">You (consented)</option>
                 <option value="guest">Guest (NOT consented)</option>
@@ -256,17 +305,22 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               variant={talking ? "danger" : "primary"}
               disabled={!ready}
               icon={<Mic size={16} aria-hidden="true" />}
-              className={cn("select-none", talking && "bg-[rgba(248,113,113,0.12)] border-[#F87171]")}
+              aria-label="Hold to talk — press and hold, or hold Space, to record"
+              aria-pressed={talking}
+              className={cn("select-none", talking && "bg-danger/[0.12] border-danger")}
               onMouseDown={start}
               onMouseUp={stop}
               onMouseLeave={stop}
+              onKeyDown={onTalkKeyDown}
+              onKeyUp={onTalkKeyUp}
               onTouchStart={(e) => { e.preventDefault(); start(); }}
               onTouchEnd={(e) => { e.preventDefault(); stop(); }}
             >
               {talking ? "Listening…" : "Hold to talk"}
             </Button>
             <span className="text-[13px] text-fg-subtle">
-              Switch to &ldquo;Guest&rdquo; to see the consent gate decline it.
+              Switch to &ldquo;Guest&rdquo; to see the consent gate decline it. Press and hold, or
+              hold Space while focused, to record.
             </span>
           </Card>
         </section>
@@ -276,6 +330,10 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           <SectionTitle icon={<Users size={16} aria-hidden="true" />}>
             Participants &amp; consent
           </SectionTitle>
+          <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
+            These toggles are read-only — consent is set in-meeting when each person replies
+            &ldquo;+&rdquo;, not from here.
+          </p>
           {participants.length === 0 ? (
             <EmptyState
               icon={<Users size={20} aria-hidden="true" />}
@@ -297,7 +355,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                     <span
                       className={cn(
                         "text-[13px] font-medium",
-                        p.consent ? "text-brand" : "text-[#F87171]"
+                        p.consent ? "text-brand" : "text-danger"
                       )}
                     >
                       {p.consent ? "Consented" : "Declined"}
@@ -335,7 +393,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                     <span className="font-mono">#{d.idx}</span>
                     <span className="text-fg-muted">{d.speaker}</span>
                     <ActionPill action={d.action} />
-                    <Badge mono variant="neutral">{d.policy_id}</Badge>
+                    <Badge variant="neutral" className="font-mono tracking-tight">{d.policy_id}</Badge>
                     <span>conf {d.confidence.toFixed(2)}</span>
                   </div>
                   <div className={cn("text-sm text-fg", isMonoAction(d.action) && "font-mono")}>
@@ -360,7 +418,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               <Button
                 variant="danger"
                 size="sm"
-                onClick={shred}
+                onClick={() => setConfirmShred(true)}
                 icon={<Lock size={14} aria-hidden="true" />}
               >
                 Crypto-shred
@@ -391,7 +449,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                     <span className="font-mono">#{l.idx}</span>
                     <span className="text-fg-muted">{l.speaker}</span>
                     <ActionPill action={l.action} />
-                    <Badge mono variant="neutral">{l.policyId || "-"}</Badge>
+                    <Badge variant="neutral" className="font-mono tracking-tight">{l.policyId || "-"}</Badge>
                   </div>
                   <div
                     className={cn(
@@ -416,6 +474,22 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           )}
         </section>
       </div>
+
+      <ConfirmDialog
+        open={confirmShred}
+        title="Crypto-shred this meeting?"
+        description={
+          <>
+            This destroys the meeting&rsquo;s encryption key. Every stored line becomes
+            permanently unreadable — there is no recovery, by design.
+          </>
+        }
+        confirmLabel="Destroy key"
+        cancelLabel="Cancel"
+        confirmVariant="danger"
+        onConfirm={() => { setConfirmShred(false); shred(); }}
+        onCancel={() => setConfirmShred(false)}
+      />
     </AppShell>
   );
 }
@@ -423,6 +497,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
 function isMonoAction(action: string): boolean {
   const a = action?.toUpperCase();
   return a === "COMMIT" || a === "REDACT";
+}
+
+function ConsentStep({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-[11px] font-medium text-fg-muted">
+      {children}
+    </span>
+  );
 }
 
 function SectionTitle({

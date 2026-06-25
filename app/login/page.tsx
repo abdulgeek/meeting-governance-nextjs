@@ -108,7 +108,7 @@ export default function Login() {
               </Field>
 
               {err && (
-                <p role="alert" className="text-[13px] text-[#F87171]">
+                <p role="alert" className="text-[13px] text-danger">
                   {err}
                 </p>
               )}

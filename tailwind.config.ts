@@ -28,6 +28,7 @@ const config: Config = {
         },
         accent: "var(--accent)",
         violet: "var(--violet)",
+        danger: "rgb(var(--danger) / <alpha-value>)",
       },
       borderRadius: {
         xl: "14px",

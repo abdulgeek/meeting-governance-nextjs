@@ -28,7 +28,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       className={cn(
         fieldBase,
         "h-10",
-        invalid && "border-[#F87171] focus-visible:ring-[#F87171]",
+        invalid && "border-danger focus-visible:ring-danger",
         className
       )}
       {...props}
@@ -49,7 +49,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         className={cn(
           fieldBase,
           "min-h-[88px] py-2.5 leading-relaxed",
-          invalid && "border-[#F87171] focus-visible:ring-[#F87171]",
+          invalid && "border-danger focus-visible:ring-danger",
           className
         )}
         {...props}
@@ -89,7 +89,7 @@ export function Field({
       </label>
       {children}
       {error ? (
-        <p className="text-[13px] text-[#F87171]">{error}</p>
+        <p className="text-[13px] text-danger">{error}</p>
       ) : hint ? (
         <p className="text-[13px] text-fg-subtle">{hint}</p>
       ) : null}

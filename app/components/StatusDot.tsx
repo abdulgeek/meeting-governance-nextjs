@@ -12,7 +12,7 @@ export type StatusDotProps = {
 const tones: Record<StatusTone, string> = {
   brand: "bg-brand",
   neutral: "bg-fg-muted",
-  danger: "bg-[#F87171]",
+  danger: "bg-danger",
   accent: "bg-accent",
   muted: "bg-fg-subtle",
 };

@@ -33,8 +33,8 @@ export const actionStyles: Record<GovernanceAction, ActionStyle> = {
     icon: EyeOff,
   },
   DROP: {
-    pill: "text-[#F87171] bg-[rgba(248,113,113,0.14)] [.light_&]:text-[#B91C1C] [.light_&]:bg-[#FEE2E2]",
-    border: "border-l-[#F87171] [.light_&]:border-l-[#B91C1C]",
+    pill: "text-danger bg-danger/[0.14] [.light_&]:text-[#B91C1C] [.light_&]:bg-[#FEE2E2]",
+    border: "border-l-danger [.light_&]:border-l-[#B91C1C]",
     icon: Ban,
   },
   FLAG: {

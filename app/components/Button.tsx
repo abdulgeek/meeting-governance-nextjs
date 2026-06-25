@@ -22,7 +22,7 @@ const variants: Record<ButtonVariant, string> = {
   primary: "bg-brand text-brand-ink hover:bg-brand-strong",
   secondary: "bg-elevated text-fg border border-border hover:border-border-strong",
   ghost: "bg-transparent text-fg-muted hover:text-fg hover:bg-elevated",
-  danger: "bg-transparent text-[#F87171] border border-border hover:bg-[rgba(248,113,113,0.12)] hover:border-[#F87171]",
+  danger: "bg-transparent text-danger border border-border hover:bg-danger/[0.12] hover:border-danger",
 };
 
 const sizes: Record<ButtonSize, string> = {

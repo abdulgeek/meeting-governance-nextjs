@@ -10,8 +10,6 @@ export type AppShellProps = {
   children: ReactNode;
   /** Optional nav slot rendered between the logo and the right cluster. */
   nav?: ReactNode;
-  /** Authenticated user's email, shown in the header. */
-  userEmail?: string;
   /** Called when the logout button is clicked. */
   onLogout?: () => void;
   /** Constrain main content width. Defaults to max-w-3xl. */
@@ -22,7 +20,6 @@ export type AppShellProps = {
 export function AppShell({
   children,
   nav,
-  userEmail,
   onLogout,
   maxWidthClassName = "max-w-3xl",
   className,
@@ -46,11 +43,6 @@ export function AppShell({
           {nav && <nav className="flex items-center gap-1">{nav}</nav>}
 
           <div className="flex items-center gap-2">
-            {userEmail && (
-              <span className="hidden max-w-[160px] truncate text-[13px] text-fg-muted sm:inline">
-                {userEmail}
-              </span>
-            )}
             <ThemeToggle />
             {onLogout && (
               <Button
