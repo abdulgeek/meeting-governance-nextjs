@@ -37,6 +37,11 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [saved, setSaved] = useState<Line[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
+  const [meetingUrl, setMeetingUrl] = useState("");
+  const [botStatus, setBotStatus] = useState("");
+  const [botErr, setBotErr] = useState("");
+  const [botLaunched, setBotLaunched] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const recRef = useRef(false);
   const spkRef = useRef("you");
@@ -54,10 +59,39 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         !window.confirm("Crypto-shred this meeting? Its key is destroyed and all stored text becomes permanently unreadable.")) return;
     try { await api.shred(id); await refreshSaved(); } catch {}
   }
+  async function joinBot() {
+    const url = meetingUrl.trim();
+    if (!url) return;
+    setBotErr("");
+    try {
+      const r = await api.joinMeeting(id, url);
+      setBotStatus(r.status);
+      setBotLaunched(true);
+    } catch (err: any) {
+      setBotErr(err.message || "join failed");
+    }
+  }
+  async function stopBot() {
+    setBotErr("");
+    try {
+      await api.stopMeeting(id);
+      setBotStatus("stopped");
+      setBotLaunched(false);
+    } catch (err: any) {
+      setBotErr(err.message || "stop failed");
+    }
+  }
 
   useEffect(() => {
     if (!getToken()) { router.replace("/login"); return; }
-    api.getMeeting(id).then((m) => setTitle(m.title)).catch(() => {});
+    api.getMeeting(id).then((m) => {
+      setTitle(m.title);
+      if (m.meetingUrl) setMeetingUrl(m.meetingUrl);
+      if (m.botStatus && m.botStatus !== "idle") {
+        setBotStatus(m.botStatus);
+        if (m.botStatus !== "stopped") setBotLaunched(true);
+      }
+    }).catch(() => {});
     refreshSaved();
 
     const ws = new WebSocket(WS_URL);
@@ -105,6 +139,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     return () => { cleanup(); ws.close(); };
   }, [id]);
 
+  // Once a bot is in the call, audio arrives via Recall (not the mic), so poll the
+  // persisted lines + consent so the decision/participant panels fill in live.
+  useEffect(() => {
+    if (!botLaunched) return;
+    const t = setInterval(refreshSaved, 2500);
+    return () => clearInterval(t);
+  }, [botLaunched, id]);
+
   const start = () => {
     if (!ready) return;
     recRef.current = true; setTalking(true);
@@ -125,6 +167,26 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           <div className="sub">Hold Talk and speak. Decisions are made live; only governed output is saved.</div>
         </div>
         <Link href="/" className="btn-ghost" style={{ padding: "10px 14px", border: "1px solid #2a313c", borderRadius: 9 }}>← Dashboard</Link>
+      </div>
+
+      <h2>Join a live meeting</h2>
+      <div className="card-box stack">
+        <input
+          placeholder="Paste a Zoom / Google Meet / Teams URL"
+          value={meetingUrl}
+          onChange={(e) => setMeetingUrl(e.target.value)}
+        />
+        <div className="controls" style={{ margin: 0 }}>
+          <button className="btn-primary" onClick={joinBot} disabled={!meetingUrl.trim()}>
+            Join bot
+          </button>
+          <button className="btn-ghost" onClick={stopBot} disabled={!botLaunched}>
+            Stop bot
+          </button>
+          {botStatus && <span className="badge">{botStatus}</span>}
+        </div>
+        <div className="hint">Admit “Governance Bot” in the call, then type “I consent” in chat.</div>
+        {botErr && <div className="err">{botErr}</div>}
       </div>
 
       <div className="controls">

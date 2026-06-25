@@ -36,7 +36,10 @@ async function req(path: string, opts: RequestInit = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-export type Meeting = { _id: string; title: string; status: string; createdAt?: string };
+export type Meeting = {
+  _id: string; title: string; status: string; createdAt?: string;
+  meetingUrl?: string; recallBotId?: string; botStatus?: string;
+};
 export type Line = {
   idx: number;
   speaker: string;
@@ -61,4 +64,8 @@ export const api = {
   getLines: (id: string): Promise<Line[]> => req(`/meetings/${id}/lines`),
   participants: (id: string): Promise<Participant[]> => req(`/meetings/${id}/participants`),
   shred: (id: string) => req(`/meetings/${id}/key`, { method: "DELETE" }),
+  joinMeeting: (id: string, meetingUrl: string): Promise<{ botId: string; status: string }> =>
+    req(`/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ meetingUrl }) }),
+  stopMeeting: (id: string): Promise<{ ok: boolean }> =>
+    req(`/meetings/${id}/stop`, { method: "POST" }),
 };
