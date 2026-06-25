@@ -43,7 +43,8 @@ export type Line = {
   action: string;
   policyId?: string;
   confidence?: number;
-  text?: string;
+  text?: string | null;
+  shredded?: boolean;
 };
 
 export const api = {
@@ -56,4 +57,5 @@ export const api = {
     req("/meetings", { method: "POST", body: JSON.stringify({ title }) }),
   getMeeting: (id: string): Promise<Meeting> => req(`/meetings/${id}`),
   getLines: (id: string): Promise<Line[]> => req(`/meetings/${id}/lines`),
+  shred: (id: string) => req(`/meetings/${id}/key`, { method: "DELETE" }),
 };

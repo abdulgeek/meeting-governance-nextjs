@@ -44,6 +44,11 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   async function refreshSaved() {
     try { setSaved(await api.getLines(id)); } catch {}
   }
+  async function shred() {
+    if (typeof window !== "undefined" &&
+        !window.confirm("Crypto-shred this meeting? Its key is destroyed and all stored text becomes permanently unreadable.")) return;
+    try { await api.shred(id); await refreshSaved(); } catch {}
+  }
 
   useEffect(() => {
     if (!getToken()) { router.replace("/login"); return; }
@@ -149,10 +154,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
 
       <div className="row">
         <h2>Saved transcript (in MongoDB)</h2>
-        <button className="btn-ghost" onClick={refreshSaved}>Refresh</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn-ghost" onClick={refreshSaved}>Refresh</button>
+          <button className="btn-ghost" onClick={shred}>🔒 Crypto-shred</button>
+        </div>
       </div>
       <div className="muted" style={{ marginBottom: 8 }}>
-        Dropped / declined lines persist with no text (“—”) — proof the governance holds at the database.
+        Kept text is stored encrypted per meeting; dropped/declined lines hold no text (“—”).
+        Crypto-shred destroys the meeting key — stored text becomes permanently unreadable.
       </div>
       {saved.length === 0 ? (
         <div className="empty">No saved lines yet.</div>
@@ -161,7 +170,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           {saved.map((l) => (
             <div key={l.idx} className={`card a-${l.action}`}>
               <div className="meta">#{l.idx} · {l.speaker} · <span className="tag">{l.action}</span> · {l.policyId || "-"}</div>
-              <div className="text">{l.text ?? "—"}</div>
+              <div className="text">{l.shredded ? "🔒 unreadable — key destroyed" : (l.text ?? "—")}</div>
             </div>
           ))}
         </div>
