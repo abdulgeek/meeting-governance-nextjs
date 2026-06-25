@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, getToken, WS_URL, Line } from "../../lib/api";
+import { api, getToken, WS_URL, Line, Participant } from "../../lib/api";
 
 type Decision = {
   idx: number; speaker: string; action: string;
@@ -35,6 +35,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [talking, setTalking] = useState(false);
   const [live, setLive] = useState<Decision[]>([]);
   const [saved, setSaved] = useState<Line[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recRef = useRef(false);
@@ -42,7 +43,11 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   useEffect(() => { spkRef.current = speaker; }, [speaker]);
 
   async function refreshSaved() {
-    try { setSaved(await api.getLines(id)); } catch {}
+    try {
+      const [lines, parts] = await Promise.all([api.getLines(id), api.participants(id)]);
+      setSaved(lines);
+      setParticipants(parts);
+    } catch {}
   }
   async function shred() {
     if (typeof window !== "undefined" &&
@@ -137,6 +142,22 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         </button>
         <span className="hint">switch to “Guest” to see the consent gate decline it</span>
       </div>
+
+      <h2>Participants &amp; consent</h2>
+      {participants.length === 0 ? (
+        <div className="empty">No participants yet — opt-ins appear here as people consent.</div>
+      ) : (
+        <div className="mlist">
+          {participants.map((p) => (
+            <div key={p.name} className="mitem">
+              <span>{p.name}</span>
+              <span className="tag" style={{ color: p.consent ? "#3fb950" : "#f85149" }}>
+                {p.consent ? "✓ consented" : "✗ declined"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <h2>Live decisions</h2>
       {live.length === 0 ? (

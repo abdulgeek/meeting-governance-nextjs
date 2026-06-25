@@ -47,6 +47,8 @@ export type Line = {
   shredded?: boolean;
 };
 
+export type Participant = { name: string; consent: boolean };
+
 export const api = {
   register: (email: string, password: string) =>
     req("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
@@ -57,5 +59,6 @@ export const api = {
     req("/meetings", { method: "POST", body: JSON.stringify({ title }) }),
   getMeeting: (id: string): Promise<Meeting> => req(`/meetings/${id}`),
   getLines: (id: string): Promise<Line[]> => req(`/meetings/${id}/lines`),
+  participants: (id: string): Promise<Participant[]> => req(`/meetings/${id}/participants`),
   shred: (id: string) => req(`/meetings/${id}/key`, { method: "DELETE" }),
 };
