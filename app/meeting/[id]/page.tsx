@@ -190,7 +190,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           </button>
           {botStatus && <span className="badge">{botStatus}</span>}
         </div>
-        <div className="hint">Admit “Governance Bot” in the call, then type “I consent” in chat.</div>
+        <div className="hint">Admit “Governance Bot” in the call. It pins a chat message asking each person to type “+” to allow their own recording — no reply means they’re not recorded.</div>
         {botErr && <div className="err">{botErr}</div>}
       </div>
 
