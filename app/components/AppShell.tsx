@@ -40,7 +40,15 @@ export function AppShell({
             <Logo />
           </Link>
 
-          {nav && <nav className="flex items-center gap-1">{nav}</nav>}
+          <nav className="flex items-center gap-1">
+            <Link
+              href="/dsar"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-fg-muted transition-colors hover:bg-elevated hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              Privacy &amp; DSAR
+            </Link>
+            {nav}
+          </nav>
 
           <div className="flex items-center gap-2">
             <ThemeToggle />

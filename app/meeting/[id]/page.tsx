@@ -2,8 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mic, RadioTower, Users, ListChecks, Database, Lock } from "lucide-react";
-import { api, getToken, WS_URL, Line, Participant } from "../../lib/api";
+import {
+  Mic,
+  RadioTower,
+  Users,
+  ListChecks,
+  Database,
+  Lock,
+  FileText,
+  ClipboardCheck,
+  Download,
+} from "lucide-react";
+import {
+  api,
+  getToken,
+  WS_URL,
+  Line,
+  Participant,
+  downloadAudit,
+  AuditResponse,
+  ActionCounts,
+} from "../../lib/api";
 import { cn } from "../../lib/cn";
 import {
   AppShell,
@@ -62,6 +81,18 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [stopping, setStopping] = useState(false);
   const [confirmShred, setConfirmShred] = useState(false);
 
+  // Governed summary (feature 1) — only kept lines feed it (enforced server-side).
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryShredded, setSummaryShredded] = useState(false);
+  const [summaryAt, setSummaryAt] = useState<string | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryErr, setSummaryErr] = useState("");
+
+  // Audit & compliance (feature 2) — content-free counts only.
+  const [audit, setAudit] = useState<AuditResponse | null>(null);
+  const [auditErr, setAuditErr] = useState("");
+  const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
+
   const wsRef = useRef<WebSocket | null>(null);
   const recRef = useRef(false);
   const spkRef = useRef("you");
@@ -73,9 +104,55 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       setSaved(lines);
       setParticipants(parts);
     } catch {}
+    refreshAudit();
+  }
+  async function refreshAudit() {
+    try {
+      setAudit(await api.getAudit(id));
+      setAuditErr("");
+    } catch (err: any) {
+      setAuditErr(err.message || "audit unavailable");
+    }
+  }
+  async function loadSummary() {
+    try {
+      const s = await api.getSummary(id);
+      setSummary(s.summary);
+      setSummaryShredded(s.shredded);
+      setSummaryAt(s.generatedAt);
+    } catch {}
+  }
+  async function generateSummary() {
+    setSummaryErr("");
+    setSummarizing(true);
+    try {
+      const r = await api.generateSummary(id);
+      setSummary(r.summary);
+      setSummaryShredded(false);
+      setSummaryAt(new Date().toISOString());
+    } catch (err: any) {
+      setSummaryErr(err.message || "summary failed");
+    } finally {
+      setSummarizing(false);
+    }
+  }
+  async function exportAudit(format: "json" | "csv") {
+    setExporting(format);
+    try {
+      await downloadAudit(id, format);
+    } catch (err: any) {
+      setAuditErr(err.message || "export failed");
+    } finally {
+      setExporting(null);
+    }
   }
   async function shred() {
-    try { await api.shred(id); await refreshSaved(); } catch {}
+    // Shredding destroys the key: the stored summary becomes unreadable too.
+    try {
+      await api.shred(id);
+      await refreshSaved();
+      await loadSummary();
+    } catch {}
   }
   async function joinBot() {
     const url = meetingUrl.trim();
@@ -117,6 +194,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       }
     }).catch(() => {});
     refreshSaved();
+    loadSummary();
 
     const ws = new WebSocket(WS_URL);
     ws.binaryType = "arraybuffer";
@@ -473,6 +551,171 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             </div>
           )}
         </section>
+
+        {/* Governed summary — only kept lines feed it (enforced server-side). */}
+        <section>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <SectionTitle icon={<FileText size={16} aria-hidden="true" />} className="mb-0">
+              Summary
+            </SectionTitle>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={generateSummary}
+              loading={summarizing}
+              disabled={summarizing || summaryShredded}
+            >
+              {summary ? "Regenerate summary" : "Generate summary"}
+            </Button>
+          </div>
+          <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
+            Summarizes only kept lines (committed, redacted, or flagged) — dropped and
+            declined content never reaches the model.
+          </p>
+          {summaryErr && <p className="mb-3 text-[13px] text-danger">{summaryErr}</p>}
+          {summaryShredded ? (
+            <Card className="flex items-center gap-2 text-[13px] text-fg-subtle">
+              <Lock size={14} aria-hidden="true" />
+              Summary unreadable — the meeting key was crypto-shredded.
+            </Card>
+          ) : summary ? (
+            <Card className="flex flex-col gap-3">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">
+                {summary}
+              </p>
+              {summaryAt && (
+                <span className="text-xs text-fg-subtle">
+                  Generated {formatWhen(summaryAt)}
+                </span>
+              )}
+            </Card>
+          ) : (
+            <EmptyState
+              icon={<FileText size={20} aria-hidden="true" />}
+              title="No summary yet"
+              description="Generate one from the kept lines above."
+            />
+          )}
+        </section>
+
+        {/* Audit & compliance — content-free: counts only, never the words. */}
+        <section>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <SectionTitle icon={<ClipboardCheck size={16} aria-hidden="true" />} className="mb-0">
+              Audit &amp; compliance
+            </SectionTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Download size={14} aria-hidden="true" />}
+                onClick={() => exportAudit("json")}
+                loading={exporting === "json"}
+                disabled={!audit || exporting !== null}
+              >
+                Export JSON
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Download size={14} aria-hidden="true" />}
+                onClick={() => exportAudit("csv")}
+                loading={exporting === "csv"}
+                disabled={!audit || exporting !== null}
+              >
+                Export CSV
+              </Button>
+            </div>
+          </div>
+          <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
+            Counts only — never the words. Per-participant decision tallies, consent state,
+            and an integrity hash over the decision log.
+          </p>
+          {auditErr && <p className="mb-3 text-[13px] text-danger">{auditErr}</p>}
+          {!audit || audit.participants.length === 0 ? (
+            <EmptyState
+              icon={<ClipboardCheck size={20} aria-hidden="true" />}
+              title="No audit data yet"
+              description="Decision tallies appear here once lines are governed."
+            />
+          ) : (
+            <Card className="flex flex-col gap-4 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-fg-subtle">
+                      <th className="pb-2 pr-3 font-medium">Participant</th>
+                      <th className="pb-2 pr-3 font-medium">Consent</th>
+                      {AUDIT_ACTIONS.map((a) => (
+                        <th key={a} className="pb-2 pr-3 text-right font-medium">
+                          <ActionPill action={a} showIcon={false} className="px-2 py-0.5" />
+                        </th>
+                      ))}
+                      <th className="pb-2 text-right font-medium text-fg-muted">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audit.participants.map((p) => (
+                      <tr key={p.name} className="border-t border-border">
+                        <td className="py-2 pr-3">
+                          <span className="flex flex-col">
+                            <span className="text-fg">{p.name}</span>
+                            {p.email && (
+                              <span className="text-xs text-fg-subtle">{p.email}</span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span
+                            className={cn(
+                              "text-[13px] font-medium",
+                              p.consent ? "text-brand" : "text-danger"
+                            )}
+                          >
+                            {p.consent ? "Consented" : "Declined"}
+                          </span>
+                        </td>
+                        {AUDIT_ACTIONS.map((a) => (
+                          <td
+                            key={a}
+                            className="py-2 pr-3 text-right font-mono tabular-nums text-fg-muted"
+                          >
+                            {p.counts[a]}
+                          </td>
+                        ))}
+                        <td className="py-2 text-right font-mono tabular-nums text-fg">
+                          {p.total}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border-strong">
+                      <td className="py-2 pr-3 font-medium text-fg">Totals</td>
+                      <td className="py-2 pr-3" />
+                      {AUDIT_ACTIONS.map((a) => (
+                        <td
+                          key={a}
+                          className="py-2 pr-3 text-right font-mono tabular-nums text-fg"
+                        >
+                          {audit.totals[a]}
+                        </td>
+                      ))}
+                      <td className="py-2 text-right font-mono tabular-nums text-fg">
+                        {AUDIT_ACTIONS.reduce((sum, a) => sum + audit.totals[a], 0)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-fg-subtle">
+                <Lock size={12} aria-hidden="true" />
+                <span className="font-mono">{audit.integrity.algo}</span>
+                <span className="truncate font-mono">{audit.integrity.hash}</span>
+              </div>
+            </Card>
+          )}
+        </section>
       </div>
 
       <ConfirmDialog
@@ -492,6 +735,26 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       />
     </AppShell>
   );
+}
+
+// Column order for the audit table — matches the ActionCounts keys.
+const AUDIT_ACTIONS: (keyof ActionCounts)[] = [
+  "COMMIT",
+  "REDACT",
+  "FLAG",
+  "DROP",
+  "DECLINE",
+];
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function isMonoAction(action: string): boolean {
