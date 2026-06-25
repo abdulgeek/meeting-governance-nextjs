@@ -1,9 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Mic, RadioTower, Users, ListChecks, Database, Lock } from "lucide-react";
 import { api, getToken, WS_URL, Line, Participant } from "../../lib/api";
+import { cn } from "../../lib/cn";
+import {
+  AppShell,
+  Card,
+  CardHeader,
+  CardTitle,
+  Input,
+  Switch,
+  Button,
+  Badge,
+  ActionPill,
+  actionBorder,
+  StatusDot,
+  EmptyState,
+} from "../../components";
 
 type Decision = {
   idx: number; speaker: string; action: string;
@@ -160,109 +175,274 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     setTimeout(refreshSaved, 1500); // pull the persisted line(s) after the decision lands
   };
 
+  // Map the connection badge to a status tone for the live indicator.
+  const connected = ready;
+  const dotTone = connected ? "brand" : badge === "disconnected" || badge === "mic blocked" ? "danger" : "muted";
+
   return (
-    <div className="wrap">
-      <div className="row">
-        <div>
-          <h1>{title || "Meeting"}<span className="badge">{badge}</span></h1>
-          <div className="sub">Hold Talk and speak. Decisions are made live; only governed output is saved.</div>
+    <AppShell>
+      {/* Header */}
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-fg">
+              {title || "Meeting"}
+            </h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-2.5 py-0.5 text-xs font-medium text-fg-muted">
+              <StatusDot tone={dotTone} pulse={connected} label={badge} />
+              {badge}
+            </span>
+          </div>
+          <p className="mt-1.5 max-w-xl text-sm text-fg-muted">
+            Hold talk and speak. Decisions are made live; only governed output is saved.
+          </p>
         </div>
-        <Link href="/" className="btn-ghost" style={{ padding: "10px 14px", border: "1px solid #2a313c", borderRadius: 9 }}>← Dashboard</Link>
-      </div>
+      </header>
 
-      <h2>Join a live meeting</h2>
-      <div className="card-box stack">
-        <input
-          placeholder="Paste a Zoom / Google Meet / Teams URL"
-          value={meetingUrl}
-          onChange={(e) => setMeetingUrl(e.target.value)}
-        />
-        <label className="hint" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input type="checkbox" checked={separate} onChange={(e) => setSeparate(e.target.checked)} />
-          Record each participant separately (per-speaker consent)
-        </label>
-        <div className="controls" style={{ margin: 0 }}>
-          <button className="btn-primary" onClick={joinBot} disabled={!meetingUrl.trim()}>
-            Join bot
-          </button>
-          <button className="btn-ghost" onClick={stopBot} disabled={!botLaunched}>
-            Stop bot
-          </button>
-          {botStatus && <span className="badge">{botStatus}</span>}
-        </div>
-        <div className="hint">Admit “Governance Bot” in the call. It pins a chat message asking each person to type “+” to allow their own recording — no reply means they’re not recorded.</div>
-        {botErr && <div className="err">{botErr}</div>}
-      </div>
-
-      <div className="controls">
-        <label>Speaker:{" "}
-          <select value={speaker} onChange={(e) => setSpeaker(e.target.value)}>
-            <option value="you">You (consented)</option>
-            <option value="guest">Guest (NOT consented)</option>
-          </select>
-        </label>
-        <button className={`talk${talking ? " live" : ""}`} disabled={!ready}
-          onMouseDown={start} onMouseUp={stop} onMouseLeave={stop}
-          onTouchStart={(e) => { e.preventDefault(); start(); }}
-          onTouchEnd={(e) => { e.preventDefault(); stop(); }}>
-          {talking ? "● Listening…" : "● Hold to talk"}
-        </button>
-        <span className="hint">switch to “Guest” to see the consent gate decline it</span>
-      </div>
-
-      <h2>Participants &amp; consent</h2>
-      {participants.length === 0 ? (
-        <div className="empty">No participants yet — opt-ins appear here as people consent.</div>
-      ) : (
-        <div className="mlist">
-          {participants.map((p) => (
-            <div key={p.name} className="mitem">
-              <span>{p.name}</span>
-              <span className="tag" style={{ color: p.consent ? "#3fb950" : "#f85149" }}>
-                {p.consent ? "✓ consented" : "✗ declined"}
-              </span>
+      <div className="flex flex-col gap-8">
+        {/* Join a live meeting */}
+        <section>
+          <SectionTitle icon={<RadioTower size={16} aria-hidden="true" />}>
+            Join a live meeting
+          </SectionTitle>
+          <Card className="flex flex-col gap-4">
+            <Input
+              placeholder="Paste a Zoom / Google Meet / Teams URL"
+              value={meetingUrl}
+              onChange={(e) => setMeetingUrl(e.target.value)}
+              aria-label="Meeting URL"
+            />
+            <label className="flex items-center gap-2.5 text-sm text-fg-muted">
+              <Switch
+                checked={separate}
+                onCheckedChange={setSeparate}
+                label="Record each participant separately"
+              />
+              Record each participant separately (per-speaker consent)
+            </label>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Button onClick={joinBot} disabled={!meetingUrl.trim()}>
+                Join bot
+              </Button>
+              <Button variant="ghost" onClick={stopBot} disabled={!botLaunched}>
+                Stop bot
+              </Button>
+              {botStatus && <Badge variant="neutral">{botStatus}</Badge>}
             </div>
-          ))}
-        </div>
-      )}
+            <p className="text-[13px] leading-relaxed text-fg-subtle">
+              Admit &ldquo;Governance Bot&rdquo; in the call. It pins a chat message asking each
+              person to type &ldquo;+&rdquo; to allow their own recording — no reply means
+              they&rsquo;re not recorded.
+            </p>
+            {botErr && <p className="text-[13px] text-[#F87171]">{botErr}</p>}
+          </Card>
+        </section>
 
-      <h2>Live decisions</h2>
-      {live.length === 0 ? (
-        <div className="empty">Nothing yet — hold Talk and say a sentence.</div>
-      ) : (
-        <div className="feed">
-          {live.map((d) => (
-            <div key={d.idx} className={`card a-${d.action}`}>
-              <div className="meta">#{d.idx} · {d.speaker} · <span className="tag">{d.action}</span> · {d.policy_id} · conf {d.confidence.toFixed(2)}</div>
-              <div className="text">{d.shown}</div>
-            </div>
-          ))}
-        </div>
-      )}
+        {/* Mic controls */}
+        <section>
+          <Card className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-fg-muted">
+              Speaker
+              <select
+                value={speaker}
+                onChange={(e) => setSpeaker(e.target.value)}
+                className="h-10 rounded-xl border border-border bg-elevated px-3 text-sm text-fg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:border-brand"
+              >
+                <option value="you">You (consented)</option>
+                <option value="guest">Guest (NOT consented)</option>
+              </select>
+            </label>
+            <Button
+              variant={talking ? "danger" : "primary"}
+              disabled={!ready}
+              icon={<Mic size={16} aria-hidden="true" />}
+              className={cn("select-none", talking && "bg-[rgba(248,113,113,0.12)] border-[#F87171]")}
+              onMouseDown={start}
+              onMouseUp={stop}
+              onMouseLeave={stop}
+              onTouchStart={(e) => { e.preventDefault(); start(); }}
+              onTouchEnd={(e) => { e.preventDefault(); stop(); }}
+            >
+              {talking ? "Listening…" : "Hold to talk"}
+            </Button>
+            <span className="text-[13px] text-fg-subtle">
+              Switch to &ldquo;Guest&rdquo; to see the consent gate decline it.
+            </span>
+          </Card>
+        </section>
 
-      <div className="row">
-        <h2>Saved transcript (in MongoDB)</h2>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn-ghost" onClick={refreshSaved}>Refresh</button>
-          <button className="btn-ghost" onClick={shred}>🔒 Crypto-shred</button>
-        </div>
-      </div>
-      <div className="muted" style={{ marginBottom: 8 }}>
-        Kept text is stored encrypted per meeting; dropped/declined lines hold no text (“—”).
-        Crypto-shred destroys the meeting key — stored text becomes permanently unreadable.
-      </div>
-      {saved.length === 0 ? (
-        <div className="empty">No saved lines yet.</div>
-      ) : (
-        <div className="feed">
-          {saved.map((l) => (
-            <div key={l.idx} className={`card a-${l.action}`}>
-              <div className="meta">#{l.idx} · {l.speaker} · <span className="tag">{l.action}</span> · {l.policyId || "-"}</div>
-              <div className="text">{l.shredded ? "🔒 unreadable — key destroyed" : (l.text ?? "—")}</div>
+        {/* Participants & consent */}
+        <section>
+          <SectionTitle icon={<Users size={16} aria-hidden="true" />}>
+            Participants &amp; consent
+          </SectionTitle>
+          {participants.length === 0 ? (
+            <EmptyState
+              icon={<Users size={20} aria-hidden="true" />}
+              title="No participants yet"
+              description="Opt-ins appear here as people consent."
+            />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {participants.map((p) => (
+                <div
+                  key={p.name}
+                  className="flex items-center justify-between rounded-2xl border border-border bg-surface px-4 py-3"
+                >
+                  <span className="flex items-center gap-2.5 text-sm text-fg">
+                    <StatusDot tone={p.consent ? "brand" : "danger"} />
+                    {p.name}
+                  </span>
+                  <span className="flex items-center gap-2.5">
+                    <span
+                      className={cn(
+                        "text-[13px] font-medium",
+                        p.consent ? "text-brand" : "text-[#F87171]"
+                      )}
+                    >
+                      {p.consent ? "Consented" : "Declined"}
+                    </span>
+                    <Switch checked={p.consent} disabled label={`${p.name} consent`} />
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </section>
+
+        {/* Live decisions */}
+        <section>
+          <SectionTitle icon={<ListChecks size={16} aria-hidden="true" />}>
+            Live decisions
+          </SectionTitle>
+          {live.length === 0 ? (
+            <EmptyState
+              icon={<ListChecks size={20} aria-hidden="true" />}
+              title="Nothing yet"
+              description="Hold talk and say a sentence."
+            />
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {live.map((d) => (
+                <div
+                  key={d.idx}
+                  className={cn(
+                    "rounded-2xl border border-l-4 border-border bg-surface p-4",
+                    actionBorder(d.action)
+                  )}
+                >
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-fg-subtle">
+                    <span className="font-mono">#{d.idx}</span>
+                    <span className="text-fg-muted">{d.speaker}</span>
+                    <ActionPill action={d.action} />
+                    <Badge mono variant="neutral">{d.policy_id}</Badge>
+                    <span>conf {d.confidence.toFixed(2)}</span>
+                  </div>
+                  <div className={cn("text-sm text-fg", isMonoAction(d.action) && "font-mono")}>
+                    {d.shown}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Saved transcript */}
+        <section>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <SectionTitle icon={<Database size={16} aria-hidden="true" />} className="mb-0">
+              Saved transcript (in MongoDB)
+            </SectionTitle>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={refreshSaved}>
+                Refresh
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={shred}
+                icon={<Lock size={14} aria-hidden="true" />}
+              >
+                Crypto-shred
+              </Button>
+            </div>
+          </div>
+          <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
+            Kept text is stored encrypted per meeting; dropped/declined lines hold no text
+            (&ldquo;—&rdquo;). Crypto-shred destroys the meeting key — stored text becomes
+            permanently unreadable.
+          </p>
+          {saved.length === 0 ? (
+            <EmptyState
+              icon={<Database size={20} aria-hidden="true" />}
+              title="No saved lines yet"
+            />
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {saved.map((l) => (
+                <div
+                  key={l.idx}
+                  className={cn(
+                    "rounded-2xl border border-l-4 border-border bg-surface p-4",
+                    actionBorder(l.action)
+                  )}
+                >
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-fg-subtle">
+                    <span className="font-mono">#{l.idx}</span>
+                    <span className="text-fg-muted">{l.speaker}</span>
+                    <ActionPill action={l.action} />
+                    <Badge mono variant="neutral">{l.policyId || "-"}</Badge>
+                  </div>
+                  <div
+                    className={cn(
+                      "text-sm",
+                      l.shredded
+                        ? "flex items-center gap-1.5 font-mono text-fg-subtle"
+                        : "font-mono text-fg"
+                    )}
+                  >
+                    {l.shredded ? (
+                      <>
+                        <Lock size={13} aria-hidden="true" />
+                        unreadable — key destroyed
+                      </>
+                    ) : (
+                      l.text ?? "—"
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </AppShell>
+  );
+}
+
+function isMonoAction(action: string): boolean {
+  const a = action?.toUpperCase();
+  return a === "COMMIT" || a === "REDACT";
+}
+
+function SectionTitle({
+  icon,
+  children,
+  className,
+}: {
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <h2
+      className={cn(
+        "mb-3 flex items-center gap-2 text-sm font-semibold tracking-tight text-fg",
+        className
       )}
-    </div>
+    >
+      {icon && <span className="text-fg-muted">{icon}</span>}
+      {children}
+    </h2>
   );
 }
