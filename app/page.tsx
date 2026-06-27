@@ -25,10 +25,12 @@ import {
   Spinner,
   ThemeToggle,
   StatusDot,
+  useToast,
 } from "./components";
 
 export default function Home() {
   const router = useRouter();
+  const toast = useToast();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [title, setTitle] = useState("");
   const [err, setErr] = useState("");
@@ -57,9 +59,11 @@ export default function Home() {
     setCreating(true);
     try {
       const m = await api.createMeeting(title.trim() || "Untitled meeting");
+      toast.success("Meeting created");
       router.push(`/meeting/${m._id}`);
     } catch (e: any) {
       setErr(e.message);
+      toast.error(e.message || "Couldn't create meeting");
       setCreating(false);
     }
   }

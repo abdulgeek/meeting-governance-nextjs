@@ -38,7 +38,9 @@ import {
   StatusDot,
   EmptyState,
   ConfirmDialog,
+  useToast,
 } from "../../components";
+import type { ToastVariant } from "../../components";
 
 type Decision = {
   idx: number; speaker: string; action: string;
@@ -63,6 +65,7 @@ function f2i(buf: Float32Array): Int16Array {
 export default function MeetingPage({ params }: { params: { id: string } }) {
   const id = params.id;
   const router = useRouter();
+  const toast = useToast();
   const [title, setTitle] = useState("");
   const [badge, setBadge] = useState("connecting…");
   const [ready, setReady] = useState(false);
@@ -98,11 +101,54 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const spkRef = useRef("you");
   useEffect(() => { spkRef.current = speaker; }, [speaker]);
 
+  // Keep the latest toast fn in a ref so the WS effect (deps: [id]) can fire
+  // toasts without re-subscribing on every render.
+  const toastRef = useRef(toast);
+  useEffect(() => { toastRef.current = toast; }, [toast]);
+  // WS lifecycle flags for distinguishing an unexpected drop from a normal
+  // page-unmount close, and for seeding participant-change toasts.
+  const wsReadyRef = useRef(false);
+  const wsUnmountingRef = useRef(false);
+  const seenPartsRef = useRef<Map<string, boolean> | null>(null);
+
+  // Per-utterance toast for the mic path so the speaker gets confirmation
+  // their speech was governed. Title = the action; description = the shown
+  // text (truncated), omitted for DROP / DECLINE.
+  function toastDecision(d: Decision) {
+    const meta = decisionToast(d.action);
+    const desc =
+      meta.showText && d.shown ? truncate(d.shown, 60) : undefined;
+    toastRef.current({
+      title: meta.title,
+      description: desc,
+      variant: meta.variant,
+    });
+  }
+
+  // Toast on participant changes only (not on every 2.5s poll). On first load
+  // we seed the ref so existing participants don't all toast at once.
+  function diffParticipants(parts: Participant[]) {
+    const prev = seenPartsRef.current;
+    if (prev === null) {
+      seenPartsRef.current = new Map(parts.map((p) => [p.name, p.consent]));
+      return;
+    }
+    for (const p of parts) {
+      if (!prev.has(p.name)) {
+        toastRef.current.info(`${p.name} joined`);
+      } else if (prev.get(p.name) === false && p.consent === true) {
+        toastRef.current.success(`${p.name} consented`);
+      }
+    }
+    seenPartsRef.current = new Map(parts.map((p) => [p.name, p.consent]));
+  }
+
   async function refreshSaved() {
     try {
       const [lines, parts] = await Promise.all([api.getLines(id), api.participants(id)]);
       setSaved(lines);
       setParticipants(parts);
+      diffParticipants(parts);
     } catch {}
     refreshAudit();
   }
@@ -159,12 +205,15 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     if (!url) return;
     setBotErr("");
     setJoining(true);
+    toast.info("Launching the bot…");
     try {
       const r = await api.joinMeeting(id, url, separate);
       setBotStatus(r.status);
       setBotLaunched(true);
+      toast.success("Bot launched — admit “Governance Bot” in the call");
     } catch (err: any) {
       setBotErr(err.message || "join failed");
+      toast.error(err.message || "Couldn't launch the bot");
     } finally {
       setJoining(false);
     }
@@ -176,8 +225,10 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       await api.stopMeeting(id);
       setBotStatus("stopped");
       setBotLaunched(false);
+      toast.success("Bot removed from the call");
     } catch (err: any) {
       setBotErr(err.message || "stop failed");
+      toast.error(err.message || "Couldn't remove the bot");
     } finally {
       setStopping(false);
     }
@@ -209,11 +260,25 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       if (m.type === "ready") {
         setBadge(`${m.engine} · ${String(m.model).split(".").pop()}`);
         setReady(true);
+        wsReadyRef.current = true;
+        toastRef.current.success("Live engine connected");
       } else if (m.type === "decision") {
-        setLive((p) => [m as Decision, ...p]);
+        const d = m as Decision;
+        setLive((p) => [d, ...p]);
+        // Per-utterance confirmation for the mic / hold-to-talk path.
+        toastDecision(d);
       }
     };
-    ws.onclose = () => { setBadge("disconnected"); setReady(false); };
+    ws.onclose = () => {
+      setBadge("disconnected");
+      setReady(false);
+      // Only surface an error for an unexpected drop after we'd connected —
+      // not for the normal page-unmount close.
+      if (wsReadyRef.current && !wsUnmountingRef.current) {
+        toastRef.current.error("Disconnected from the engine");
+      }
+      wsReadyRef.current = false;
+    };
 
     let cleanup = () => {};
     (async () => {
@@ -238,7 +303,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       }
     })();
 
-    return () => { cleanup(); ws.close(); };
+    return () => { wsUnmountingRef.current = true; cleanup(); ws.close(); };
   }, [id]);
 
   // Once a bot is in the call, audio arrives via Recall (not the mic), so poll the
@@ -755,6 +820,36 @@ function formatWhen(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// Map a governance action to its per-utterance toast treatment.
+// COMMIT=success, REDACT=warning, DROP=error, FLAG=info, DECLINE=neutral.
+function decisionToast(action: string): {
+  title: string;
+  variant: ToastVariant;
+  showText: boolean;
+} {
+  switch (action?.toUpperCase()) {
+    case "COMMIT":
+      return { title: "Committed", variant: "success", showText: true };
+    case "REDACT":
+      return { title: "Redacted", variant: "warning", showText: true };
+    case "DROP":
+      return { title: "Dropped", variant: "error", showText: false };
+    case "FLAG":
+      return { title: "Flagged", variant: "info", showText: true };
+    case "DECLINE":
+    default:
+      return {
+        title: "Declined — no consent",
+        variant: "neutral",
+        showText: false,
+      };
+  }
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max).trimEnd()}…` : s;
 }
 
 function isMonoAction(action: string): boolean {

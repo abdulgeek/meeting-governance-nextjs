@@ -46,3 +46,6 @@ export type { AppShellProps } from "./AppShell";
 
 export { ConfirmDialog } from "./ConfirmDialog";
 export type { ConfirmDialogProps } from "./ConfirmDialog";
+
+export { ToastProvider, Toaster, useToast } from "./Toast";
+export type { ToastVariant, ToastOptions } from "./Toast";
