@@ -37,6 +37,7 @@ import {
   actionBorder,
   StatusDot,
   EmptyState,
+  SkeletonRow,
   ConfirmDialog,
   useToast,
 } from "../../components";
@@ -71,6 +72,9 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [ready, setReady] = useState(false);
   const [speaker, setSpeaker] = useState("you");
   const [talking, setTalking] = useState(false);
+  // Optimistic mic placeholder: set on EOU (release), cleared when the matching
+  // 'decision' arrives (or after a timeout so it never hangs).
+  const [pendingMic, setPendingMic] = useState(false);
   const [live, setLive] = useState<Decision[]>([]);
   const [saved, setSaved] = useState<Line[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -100,6 +104,17 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const recRef = useRef(false);
   const spkRef = useRef("you");
   useEffect(() => { spkRef.current = speaker; }, [speaker]);
+
+  // Safety timeout for the optimistic mic placeholder so it drops itself if no
+  // decision arrives (~15s). Cleared when a decision lands or on unmount.
+  const pendingMicTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function clearPendingMic() {
+    if (pendingMicTimerRef.current) {
+      clearTimeout(pendingMicTimerRef.current);
+      pendingMicTimerRef.current = null;
+    }
+    setPendingMic(false);
+  }
 
   // Keep the latest toast fn in a ref so the WS effect (deps: [id]) can fire
   // toasts without re-subscribing on every render.
@@ -264,6 +279,8 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         toastRef.current.success("Live engine connected");
       } else if (m.type === "decision") {
         const d = m as Decision;
+        // The optimistic placeholder resolves into the real decision.
+        clearPendingMic();
         setLive((p) => [d, ...p]);
         // Per-utterance confirmation for the mic / hold-to-talk path.
         toastDecision(d);
@@ -303,14 +320,19 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       }
     })();
 
-    return () => { wsUnmountingRef.current = true; cleanup(); ws.close(); };
+    return () => {
+      wsUnmountingRef.current = true;
+      if (pendingMicTimerRef.current) clearTimeout(pendingMicTimerRef.current);
+      cleanup();
+      ws.close();
+    };
   }, [id]);
 
   // Once a bot is in the call, audio arrives via Recall (not the mic), so poll the
   // persisted lines + consent so the decision/participant panels fill in live.
   useEffect(() => {
     if (!botLaunched) return;
-    const t = setInterval(refreshSaved, 2500);
+    const t = setInterval(refreshSaved, 1500);
     return () => clearInterval(t);
   }, [botLaunched, id]);
 
@@ -323,6 +345,15 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     if (!recRef.current) return;
     recRef.current = false; setTalking(false);
     wsRef.current?.send(JSON.stringify({ type: "eou" }));
+    // Optimistically show a pending placeholder at the top of the live feed
+    // while the utterance is transcribed & governed. The next 'decision'
+    // message resolves it; a timeout drops it so it never hangs.
+    if (pendingMicTimerRef.current) clearTimeout(pendingMicTimerRef.current);
+    setPendingMic(true);
+    pendingMicTimerRef.current = setTimeout(() => {
+      pendingMicTimerRef.current = null;
+      setPendingMic(false);
+    }, 15000);
     setTimeout(refreshSaved, 1500); // pull the persisted line(s) after the decision lands
   };
   // Keyboard parity for hold-to-talk: Space/Enter holds while pressed.
@@ -461,10 +492,24 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             >
               {talking ? "Listening…" : "Hold to talk"}
             </Button>
-            <span className="text-[13px] text-fg-subtle">
-              Switch to &ldquo;Guest&rdquo; to see the consent gate decline it. Press and hold, or
-              hold Space while focused, to record.
-            </span>
+            {talking ? (
+              <span
+                role="status"
+                aria-live="assertive"
+                className="inline-flex items-center gap-2 rounded-full border border-danger bg-danger/[0.12] px-3 py-1.5 text-[13px] font-medium text-danger"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75 motion-reduce:hidden" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
+                </span>
+                Recording - speak now
+              </span>
+            ) : (
+              <span className="text-[13px] text-fg-subtle">
+                Switch to &ldquo;Guest&rdquo; to see the consent gate decline it. Press and hold, or
+                hold Space while focused, to record.
+              </span>
+            )}
           </Card>
         </section>
 
@@ -516,7 +561,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           <SectionTitle icon={<ListChecks size={16} aria-hidden="true" />}>
             Live decisions
           </SectionTitle>
-          {live.length === 0 ? (
+          {live.length === 0 && !pendingMic ? (
             <EmptyState
               icon={<ListChecks size={20} aria-hidden="true" />}
               title="Nothing yet"
@@ -524,6 +569,9 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             />
           ) : (
             <div className="flex flex-col gap-2.5">
+              {pendingMic && (
+                <SkeletonRow label="you · transcribing & governing…" />
+              )}
               {live.map((d) => (
                 <div
                   key={d.idx}
@@ -580,7 +628,16 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             />
           ) : (
             <div className="flex flex-col gap-2.5">
-              {saved.map((l) => (
+              {saved.map((l) =>
+                l.action === "PENDING" ? (
+                  // Placeholder line: the engine posts this before STT+LLM; the
+                  // next poll returns the same idx with a real action and
+                  // naturally replaces it. Kept in idx order with real lines.
+                  <SkeletonRow
+                    key={l.idx}
+                    label={`${l.speaker} · processing…`}
+                  />
+                ) : (
                 <div
                   key={l.idx}
                   className={cn(
@@ -612,7 +669,8 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </section>
