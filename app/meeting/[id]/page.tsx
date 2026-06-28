@@ -47,21 +47,6 @@ type Decision = {
   policy_id: string; confidence: number; shown: string;
 };
 
-function downsample(buf: Float32Array, inRate: number): Float32Array {
-  if (inRate === 16000) return buf;
-  const r = inRate / 16000, n = Math.floor(buf.length / r), o = new Float32Array(n);
-  for (let i = 0; i < n; i++) o[i] = buf[Math.floor(i * r)];
-  return o;
-}
-function f2i(buf: Float32Array): Int16Array {
-  const o = new Int16Array(buf.length);
-  for (let i = 0; i < buf.length; i++) {
-    const s = Math.max(-1, Math.min(1, buf[i]));
-    o[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-  }
-  return o;
-}
-
 export default function MeetingPage({ params }: { params: { id: string } }) {
   const id = params.id;
   const router = useRouter();
@@ -104,6 +89,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   // Chrome starts it SUSPENDED and onaudioprocess never fires. We stash it here
   // and resume() it from start() (a real user gesture) to actually capture.
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const recRef = useRef(false);
   const spkRef = useRef("you");
   useEffect(() => { spkRef.current = speaker; }, [speaker]);
@@ -335,25 +321,27 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
         audioCtxRef.current = ctx;
+        // AudioWorklet captures OFF the main thread (replaces the deprecated
+        // ScriptProcessorNode that caused the INP jank). It posts 16 kHz Int16 PCM
+        // only while recording; start()/stop() toggle it via the node port.
+        await ctx.audioWorklet.addModule("/pcm-recorder.worklet.js");
         const src = ctx.createMediaStreamSource(stream);
-        const proc = ctx.createScriptProcessor(4096, 1, 1);
-        proc.onaudioprocess = (ev) => {
-          if (!recRef.current || ws.readyState !== 1) return;
-          const inp = ev.inputBuffer.getChannelData(0);
-          ws.send(f2i(downsample(inp, ctx.sampleRate)).buffer);
+        const node = new AudioWorkletNode(ctx, "pcm-recorder");
+        workletNodeRef.current = node;
+        node.port.onmessage = (e) => {
+          if (ws.readyState === 1) ws.send(e.data as ArrayBuffer);
         };
-        // ScriptProcessor needs a downstream node to pump, but routing it to
-        // ctx.destination echoes the mic to the speakers. A 0-gain sink keeps
-        // the graph alive (so onaudioprocess fires) without any audible output.
+        // 0-gain sink keeps the graph pumping without echoing the mic to the speakers.
         const sink = ctx.createGain();
         sink.gain.value = 0;
-        src.connect(proc);
-        proc.connect(sink);
+        src.connect(node);
+        node.connect(sink);
         sink.connect(ctx.destination);
         cleanup = () => {
-          proc.disconnect(); src.disconnect(); sink.disconnect();
+          node.port.onmessage = null;
+          node.disconnect(); src.disconnect(); sink.disconnect();
           stream.getTracks().forEach((t) => t.stop()); ctx.close();
-          audioCtxRef.current = null;
+          audioCtxRef.current = null; workletNodeRef.current = null;
         };
       } catch (err) {
         setBadge("mic blocked"); console.error(err);
@@ -406,12 +394,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     // start() runs from a user gesture, so this resume() is allowed and flips
     // the (otherwise SUSPENDED) AudioContext to running so capture actually fires.
     audioCtxRef.current?.resume().catch(() => { });
+    workletNodeRef.current?.port.postMessage({ recording: true });
     recRef.current = true; setTalking(true);
     wsRef.current?.send(JSON.stringify({ type: "speaker", id: spkRef.current }));
   };
   const stop = () => {
     if (!recRef.current) return;
     recRef.current = false; setTalking(false);
+    workletNodeRef.current?.port.postMessage({ recording: false });
     wsRef.current?.send(JSON.stringify({ type: "eou" }));
     // Optimistically show a pending placeholder at the top of the live feed
     // while the utterance is transcribed & governed. The next 'decision'
