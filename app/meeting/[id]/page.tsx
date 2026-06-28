@@ -84,14 +84,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [stopping, setStopping] = useState(false);
   const [confirmShred, setConfirmShred] = useState(false);
 
-  // Governed summary (feature 1) — only kept lines feed it (enforced server-side).
+  // Governed summary (feature 1) - only kept lines feed it (enforced server-side).
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryShredded, setSummaryShredded] = useState(false);
   const [summaryAt, setSummaryAt] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryErr, setSummaryErr] = useState("");
 
-  // Audit & compliance (feature 2) — content-free counts only.
+  // Audit & compliance (feature 2) - content-free counts only.
   const [audit, setAudit] = useState<AuditResponse | null>(null);
   const [auditErr, setAuditErr] = useState("");
   const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
@@ -149,7 +149,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       setSaved(lines);
       setParticipants(parts);
       diffParticipants(parts);
-    } catch {}
+    } catch { }
     refreshAudit();
   }
   async function refreshAudit() {
@@ -166,7 +166,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       setSummary(s.summary);
       setSummaryShredded(s.shredded);
       setSummaryAt(s.generatedAt);
-    } catch {}
+    } catch { }
   }
   async function generateSummary() {
     setSummaryErr("");
@@ -198,7 +198,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       await api.shred(id);
       await refreshSaved();
       await loadSummary();
-    } catch {}
+    } catch { }
   }
   async function joinBot() {
     const url = meetingUrl.trim();
@@ -210,7 +210,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       const r = await api.joinMeeting(id, url, separate);
       setBotStatus(r.status);
       setBotLaunched(true);
-      toast.success("Bot launched — admit “Governance Bot” in the call");
+      toast.success("Bot launched - admit “Governance Bot” in the call");
     } catch (err: any) {
       setBotErr(err.message || "join failed");
       toast.error(err.message || "Couldn't launch the bot");
@@ -243,7 +243,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         setBotStatus(m.botStatus);
         if (m.botStatus !== "stopped") setBotLaunched(true);
       }
-    }).catch(() => {});
+    }).catch(() => { });
     refreshSaved();
     loadSummary();
 
@@ -272,7 +272,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     ws.onclose = () => {
       setBadge("disconnected");
       setReady(false);
-      // Only surface an error for an unexpected drop after we'd connected —
+      // Only surface an error for an unexpected drop after we'd connected -
       // not for the normal page-unmount close.
       if (wsReadyRef.current && !wsUnmountingRef.current) {
         toastRef.current.error("Disconnected from the engine");
@@ -280,7 +280,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       wsReadyRef.current = false;
     };
 
-    let cleanup = () => {};
+    let cleanup = () => { };
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -410,7 +410,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               <ol className="flex flex-col gap-2 text-[13px] leading-relaxed text-fg-subtle">
                 <li className="flex gap-2.5">
                   <ConsentStep>1</ConsentStep>
-                  The bot joins your call — admit &ldquo;Governance Bot&rdquo; like any guest.
+                  The bot joins your call - admit &ldquo;Governance Bot&rdquo; like any guest.
                 </li>
                 <li className="flex gap-2.5">
                   <ConsentStep>2</ConsentStep>
@@ -418,7 +418,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                 </li>
                 <li className="flex gap-2.5">
                   <ConsentStep>3</ConsentStep>
-                  Only people who reply are recorded — no reply means they are never transcribed.
+                  Only people who reply are recorded - no reply means they are never transcribed.
                 </li>
                 <li className="flex gap-2.5">
                   <ConsentStep>4</ConsentStep>
@@ -448,7 +448,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               variant={talking ? "danger" : "primary"}
               disabled={!ready}
               icon={<Mic size={16} aria-hidden="true" />}
-              aria-label="Hold to talk — press and hold, or hold Space, to record"
+              aria-label="Hold to talk - press and hold, or hold Space, to record"
               aria-pressed={talking}
               className={cn("select-none", talking && "bg-danger/[0.12] border-danger")}
               onMouseDown={start}
@@ -474,7 +474,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             Participants &amp; consent
           </SectionTitle>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
-            These toggles are read-only — consent is set in-meeting when each person replies
+            These toggles are read-only - consent is set in-meeting when each person replies
             &ldquo;+&rdquo;, not from here.
           </p>
           {participants.length === 0 ? (
@@ -570,7 +570,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           </div>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
             Kept text is stored encrypted per meeting; dropped/declined lines hold no text
-            (&ldquo;—&rdquo;). Crypto-shred destroys the meeting key — stored text becomes
+            (&ldquo;-&rdquo;). Crypto-shred destroys the meeting key - stored text becomes
             permanently unreadable.
           </p>
           {saved.length === 0 ? (
@@ -605,10 +605,10 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                     {l.shredded ? (
                       <>
                         <Lock size={13} aria-hidden="true" />
-                        unreadable — key destroyed
+                        unreadable - key destroyed
                       </>
                     ) : (
-                      l.text ?? "—"
+                      l.text ?? "-"
                     )}
                   </div>
                 </div>
@@ -617,7 +617,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           )}
         </section>
 
-        {/* Governed summary — only kept lines feed it (enforced server-side). */}
+        {/* Governed summary - only kept lines feed it (enforced server-side). */}
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <SectionTitle icon={<FileText size={16} aria-hidden="true" />} className="mb-0">
@@ -634,14 +634,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             </Button>
           </div>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
-            Summarizes only kept lines (committed, redacted, or flagged) — dropped and
+            Summarizes only kept lines (committed, redacted, or flagged) - dropped and
             declined content never reaches the model.
           </p>
           {summaryErr && <p className="mb-3 text-[13px] text-danger">{summaryErr}</p>}
           {summaryShredded ? (
             <Card className="flex items-center gap-2 text-[13px] text-fg-subtle">
               <Lock size={14} aria-hidden="true" />
-              Summary unreadable — the meeting key was crypto-shredded.
+              Summary unreadable - the meeting key was crypto-shredded.
             </Card>
           ) : summary ? (
             <Card className="flex flex-col gap-3">
@@ -663,7 +663,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           )}
         </section>
 
-        {/* Audit & compliance — content-free: counts only, never the words. */}
+        {/* Audit & compliance - content-free: counts only, never the words. */}
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <SectionTitle icon={<ClipboardCheck size={16} aria-hidden="true" />} className="mb-0">
@@ -693,7 +693,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
-            Counts only — never the words. Per-participant decision tallies, consent state,
+            Counts only - never the words. Per-participant decision tallies, consent state,
             and an integrity hash over the decision log.
           </p>
           {auditErr && <p className="mb-3 text-[13px] text-danger">{auditErr}</p>}
@@ -789,7 +789,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         description={
           <>
             This destroys the meeting&rsquo;s encryption key. Every stored line becomes
-            permanently unreadable — there is no recovery, by design.
+            permanently unreadable - there is no recovery, by design.
           </>
         }
         confirmLabel="Destroy key"
@@ -802,7 +802,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   );
 }
 
-// Column order for the audit table — matches the ActionCounts keys.
+// Column order for the audit table - matches the ActionCounts keys.
 const AUDIT_ACTIONS: (keyof ActionCounts)[] = [
   "COMMIT",
   "REDACT",
@@ -841,7 +841,7 @@ function decisionToast(action: string): {
     case "DECLINE":
     default:
       return {
-        title: "Declined — no consent",
+        title: "Declined - no consent",
         variant: "neutral",
         showText: false,
       };

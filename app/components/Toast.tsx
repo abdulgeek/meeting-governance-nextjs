@@ -48,7 +48,7 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 const MAX_VISIBLE = 4;
 const AUTO_DISMISS_MS = 3500;
 
-// Variant treatment — mirrors the ActionPill / Vault action-color map.
+// Variant treatment - mirrors the ActionPill / Vault action-color map.
 // success=emerald/brand, error=danger/red, warning=amber, info=cyan/accent,
 // neutral=fg-muted. Each has a leading icon + a left accent stripe.
 const variantStyles: Record<
@@ -94,7 +94,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => {
       const next: ToastRecord = { ...opts, id: nextId.current++ };
       const stack = [...prev, next];
-      // Keep at most MAX_VISIBLE — drop the oldest.
+      // Keep at most MAX_VISIBLE - drop the oldest.
       return stack.slice(-MAX_VISIBLE);
     });
   }, []);

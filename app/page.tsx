@@ -97,7 +97,7 @@ export default function Home() {
               Your meetings
             </h1>
             <p className="max-w-xl text-sm text-fg-muted">
-              Start a governed meeting — decisions are made live, and only
+              Start a governed meeting - decisions are made live, and only
               governed output is stored.
             </p>
           </div>
@@ -233,7 +233,7 @@ function Landing() {
             <p className="max-w-xl text-base leading-relaxed text-fg-muted">
               A bot joins your real Zoom, Meet, or Teams call and records only
               the people who consent. Sensitive content is redacted or dropped
-              live — and when a meeting is over, one crypto-shred makes its
+              live - and when a meeting is over, one crypto-shred makes its
               transcript permanently unreadable.
             </p>
             <div className="flex flex-wrap items-center gap-3">
@@ -266,7 +266,7 @@ function Landing() {
           <FeatureCard
             icon={<Scissors size={20} aria-hidden="true" />}
             title="Live redaction"
-            description="Sensitive content is redacted or dropped the moment it's said — before a single word reaches storage."
+            description="Sensitive content is redacted or dropped the moment it's said - before a single word reaches storage."
           />
           <FeatureCard
             icon={<KeyRound size={20} aria-hidden="true" />}

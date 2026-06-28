@@ -48,7 +48,7 @@ export default function Login() {
       </div>
 
       <div className="mx-auto grid min-h-screen max-w-5xl items-center gap-10 px-6 py-12 lg:grid-cols-2">
-        {/* Brand panel — hidden on small screens */}
+        {/* Brand panel - hidden on small screens */}
         <div className="hidden flex-col justify-center lg:flex">
           <Logo size={32} />
           <div className="mt-10 max-w-md">
@@ -60,7 +60,7 @@ export default function Login() {
             before it&apos;s written down.
           </h2>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-fg-muted">
-            Real-time meeting governance — consent, redaction, and
+            Real-time meeting governance - consent, redaction, and
             crypto-shredding, decided live as people speak.
           </p>
         </div>
