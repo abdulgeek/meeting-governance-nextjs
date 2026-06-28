@@ -16,6 +16,14 @@ export function clearToken() {
   localStorage.removeItem("token");
 }
 
+// Build the SSE URL for a meeting's live line stream. The JWT rides in the
+// query string because the EventSource API can't attach Authorization headers.
+export function streamUrl(id: string): string {
+  return `${API}/meetings/${id}/stream?token=${encodeURIComponent(
+    getToken() || "",
+  )}`;
+}
+
 async function req(path: string, opts: RequestInit = {}) {
   const token = getToken();
   const res = await fetch(`${API}${path}`, {
@@ -126,6 +134,10 @@ export const api = {
     req("/meetings", { method: "POST", body: JSON.stringify({ title }) }),
   getMeeting: (id: string): Promise<Meeting> => req(`/meetings/${id}`),
   getLines: (id: string): Promise<Line[]> => req(`/meetings/${id}/lines`),
+  // SSE: open an EventSource against this to receive governed lines pushed in
+  // real time. Token goes in the query string because EventSource can't set
+  // custom headers. Each event payload is a single Line (JSON).
+  streamUrl,
   participants: (id: string): Promise<Participant[]> =>
     req(`/meetings/${id}/participants`),
   shred: (id: string) => req(`/meetings/${id}/key`, { method: "DELETE" }),

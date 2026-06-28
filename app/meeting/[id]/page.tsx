@@ -17,6 +17,7 @@ import {
   api,
   getToken,
   WS_URL,
+  streamUrl,
   Line,
   Participant,
   downloadAudit,
@@ -27,8 +28,6 @@ import { cn } from "../../lib/cn";
 import {
   AppShell,
   Card,
-  CardHeader,
-  CardTitle,
   Input,
   Switch,
   Button,
@@ -101,6 +100,10 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+  // The capture AudioContext is created outside a user gesture (on mount), so
+  // Chrome starts it SUSPENDED and onaudioprocess never fires. We stash it here
+  // and resume() it from start() (a real user gesture) to actually capture.
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const recRef = useRef(false);
   const spkRef = useRef("you");
   useEffect(() => { spkRef.current = speaker; }, [speaker]);
@@ -158,10 +161,39 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     seenPartsRef.current = new Map(parts.map((p) => [p.name, p.consent]));
   }
 
+  // UPSERT a single line into saved[] by idx, preserving idx order. A PENDING
+  // line is replaced in place by its final decision when the next event for the
+  // same idx arrives.
+  function upsertLine(line: Line) {
+    setSaved((prev) => {
+      const next = prev.slice();
+      const at = next.findIndex((l) => l.idx === line.idx);
+      if (at === -1) {
+        next.push(line);
+        next.sort((a, b) => a.idx - b.idx);
+      } else {
+        next[at] = line;
+      }
+      return next;
+    });
+  }
+
   async function refreshSaved() {
     try {
       const [lines, parts] = await Promise.all([api.getLines(id), api.participants(id)]);
       setSaved(lines);
+      setParticipants(parts);
+      diffParticipants(parts);
+    } catch { }
+    refreshAudit();
+  }
+
+  // Lighter refresh for the participant/consent + audit panels - the lines
+  // themselves arrive via SSE, but join/consent toasts and audit tallies still
+  // ride a poll (and a kick whenever an SSE line lands).
+  async function refreshParticipants() {
+    try {
+      const parts = await api.participants(id);
       setParticipants(parts);
       diffParticipants(parts);
     } catch { }
@@ -302,6 +334,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioCtxRef.current = ctx;
         const src = ctx.createMediaStreamSource(stream);
         const proc = ctx.createScriptProcessor(4096, 1, 1);
         proc.onaudioprocess = (ev) => {
@@ -309,11 +342,18 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           const inp = ev.inputBuffer.getChannelData(0);
           ws.send(f2i(downsample(inp, ctx.sampleRate)).buffer);
         };
+        // ScriptProcessor needs a downstream node to pump, but routing it to
+        // ctx.destination echoes the mic to the speakers. A 0-gain sink keeps
+        // the graph alive (so onaudioprocess fires) without any audible output.
+        const sink = ctx.createGain();
+        sink.gain.value = 0;
         src.connect(proc);
-        proc.connect(ctx.destination);
+        proc.connect(sink);
+        sink.connect(ctx.destination);
         cleanup = () => {
-          proc.disconnect(); src.disconnect();
+          proc.disconnect(); src.disconnect(); sink.disconnect();
           stream.getTracks().forEach((t) => t.stop()); ctx.close();
+          audioCtxRef.current = null;
         };
       } catch (err) {
         setBadge("mic blocked"); console.error(err);
@@ -328,16 +368,44 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     };
   }, [id]);
 
-  // Once a bot is in the call, audio arrives via Recall (not the mic), so poll the
-  // persisted lines + consent so the decision/participant panels fill in live.
+  // SSE push for saved lines (replaces the old 1.5s poll). The initial
+  // api.getLines(id) on mount handles backfill; from here on the server pushes
+  // each governed line. We UPSERT by idx so a PENDING line is replaced in place
+  // by its final decision. EventSource auto-reconnects; we close it on unmount.
+  useEffect(() => {
+    const es = new EventSource(streamUrl(id));
+    es.onmessage = (ev) => {
+      if (!ev.data) return;
+      try {
+        const line = JSON.parse(ev.data) as Line;
+        if (typeof line.idx !== "number") return;
+        upsertLine(line);
+      } catch { return; }
+      // A new line landed - refresh the consent + audit panels so join/consent
+      // toasts fire and the tallies stay current without a tight poll.
+      refreshParticipants();
+    };
+    // Swallow transient errors; EventSource reconnects on its own.
+    es.onerror = () => { };
+    return () => es.close();
+  }, [id]);
+
+  // Lighter poll for participants/consent + audit so join/consent toasts still
+  // work even when no SSE line has arrived yet (e.g. someone joins but is silent).
   useEffect(() => {
     if (!botLaunched) return;
-    const t = setInterval(refreshSaved, 1500);
+    const t = setInterval(refreshParticipants, 3000);
     return () => clearInterval(t);
   }, [botLaunched, id]);
 
   const start = () => {
-    if (!ready) return;
+    if (!ready) {
+      toast.info("Connecting to the live engine — give it a second…");
+      return;
+    }
+    // start() runs from a user gesture, so this resume() is allowed and flips
+    // the (otherwise SUSPENDED) AudioContext to running so capture actually fires.
+    audioCtxRef.current?.resume().catch(() => { });
     recRef.current = true; setTalking(true);
     wsRef.current?.send(JSON.stringify({ type: "speaker", id: spkRef.current }));
   };
@@ -481,14 +549,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               icon={<Mic size={16} aria-hidden="true" />}
               aria-label="Hold to talk - press and hold, or hold Space, to record"
               aria-pressed={talking}
-              className={cn("select-none", talking && "bg-danger/[0.12] border-danger")}
+              className={cn("touch-none select-none", talking && "bg-danger/[0.12] border-danger")}
               onMouseDown={start}
               onMouseUp={stop}
               onMouseLeave={stop}
               onKeyDown={onTalkKeyDown}
               onKeyUp={onTalkKeyUp}
-              onTouchStart={(e) => { e.preventDefault(); start(); }}
-              onTouchEnd={(e) => { e.preventDefault(); stop(); }}
+              onTouchStart={start}
+              onTouchEnd={stop}
             >
               {talking ? "Listening…" : "Hold to talk"}
             </Button>
