@@ -5,7 +5,7 @@ export type HeroProps = {
 };
 
 /**
- * Hero brand visual — concentric emerald/cyan arcs forming a shield with an
+ * Hero brand visual - concentric emerald/cyan arcs forming a shield with an
  * equalizer/waveform motif. Flat, layered opacity, and the single allowed
  * soft radial glow. Scales responsively to its container width.
  */
@@ -49,7 +49,7 @@ export function Hero({ className }: HeroProps) {
               strokeOpacity={0.85 - i * 0.16}
             />
           ))}
-          {/* Shield base — converging V */}
+          {/* Shield base - converging V */}
           <path
             d="M -124 -68 L 0 96 L 124 -68"
             stroke="var(--brand)"

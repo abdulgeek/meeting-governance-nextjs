@@ -30,6 +30,9 @@ export type { EmptyStateProps } from "./EmptyState";
 export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";
 
+export { Skeleton, SkeletonRow } from "./Skeleton";
+export type { SkeletonProps } from "./Skeleton";
+
 export { Logo, LogoMark } from "./Logo";
 export type { LogoProps } from "./Logo";
 

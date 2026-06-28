@@ -68,7 +68,7 @@ export type FieldProps = {
 };
 
 /**
- * Field — label + control + error/hint wrapper. Pass the control as children.
+ * Field - label + control + error/hint wrapper. Pass the control as children.
  * If a child input needs the generated id, render Field around a labelled
  * control or pass htmlFor explicitly.
  */

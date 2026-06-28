@@ -2,7 +2,8 @@
 // lives here too so pages import one module.
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
+export const WS_URL =
+  process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
 export const API_URL = API;
 
 export function getToken(): string | null {
@@ -13,6 +14,14 @@ export function setToken(t: string) {
 }
 export function clearToken() {
   localStorage.removeItem("token");
+}
+
+// Build the SSE URL for a meeting's live line stream. The JWT rides in the
+// query string because the EventSource API can't attach Authorization headers.
+export function streamUrl(id: string): string {
+  return `${API}/meetings/${id}/stream?token=${encodeURIComponent(
+    getToken() || "",
+  )}`;
 }
 
 async function req(path: string, opts: RequestInit = {}) {
@@ -38,8 +47,13 @@ async function req(path: string, opts: RequestInit = {}) {
 }
 
 export type Meeting = {
-  _id: string; title: string; status: string; createdAt?: string;
-  meetingUrl?: string; recallBotId?: string; botStatus?: string;
+  _id: string;
+  title: string;
+  status: string;
+  createdAt?: string;
+  meetingUrl?: string;
+  recallBotId?: string;
+  botStatus?: string;
 };
 export type Line = {
   idx: number;
@@ -88,7 +102,7 @@ export type AuditResponse = {
 
 // ---- Self-service DSAR (feature 5) ---------------------------------------
 // Owner-scoped. identity = email-when-known else name. Erasure is per-MEETING
-// (shreds whole meetings containing the person) — true per-line erasure needs
+// (shreds whole meetings containing the person) - true per-line erasure needs
 // per-participant keys (future).
 export type DsarLine = { idx: number; action: string; text?: string | null };
 export type DsarMeeting = {
@@ -106,18 +120,36 @@ export type DsarEraseResponse = { erased: string[]; note: string };
 
 export const api = {
   register: (email: string, password: string) =>
-    req("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
+    req("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
   login: (email: string, password: string) =>
-    req("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+    req("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
   listMeetings: (): Promise<Meeting[]> => req("/meetings"),
   createMeeting: (title: string): Promise<Meeting> =>
     req("/meetings", { method: "POST", body: JSON.stringify({ title }) }),
   getMeeting: (id: string): Promise<Meeting> => req(`/meetings/${id}`),
   getLines: (id: string): Promise<Line[]> => req(`/meetings/${id}/lines`),
-  participants: (id: string): Promise<Participant[]> => req(`/meetings/${id}/participants`),
+  // SSE: open an EventSource against this to receive governed lines pushed in
+  // real time. Token goes in the query string because EventSource can't set
+  // custom headers. Each event payload is a single Line (JSON).
+  streamUrl,
+  participants: (id: string): Promise<Participant[]> =>
+    req(`/meetings/${id}/participants`),
   shred: (id: string) => req(`/meetings/${id}/key`, { method: "DELETE" }),
-  joinMeeting: (id: string, meetingUrl: string, separate = true): Promise<{ botId: string; status: string }> =>
-    req(`/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ meetingUrl, separate }) }),
+  joinMeeting: (
+    id: string,
+    meetingUrl: string,
+    separate = true,
+  ): Promise<{ botId: string; status: string }> =>
+    req(`/meetings/${id}/join`, {
+      method: "POST",
+      body: JSON.stringify({ meetingUrl, separate }),
+    }),
   stopMeeting: (id: string): Promise<{ ok: boolean }> =>
     req(`/meetings/${id}/stop`, { method: "POST" }),
 
@@ -128,7 +160,8 @@ export const api = {
     req(`/meetings/${id}/summary`),
 
   // ---- Audit / consent receipts (feature 2) ------------------------------
-  getAudit: (id: string): Promise<AuditResponse> => req(`/meetings/${id}/audit`),
+  getAudit: (id: string): Promise<AuditResponse> =>
+    req(`/meetings/${id}/audit`),
 
   // ---- Self-service DSAR (feature 5) -------------------------------------
   dsarLookup: (identity: string): Promise<DsarLookupResponse> =>
@@ -139,7 +172,7 @@ export const api = {
 
 // Fetch a file from a guarded endpoint (the API needs the JWT header, so a
 // plain <a href> won't work) and trigger a browser download. Used for the
-// audit JSON/CSV exports — content-free, counts only.
+// audit JSON/CSV exports - content-free, counts only.
 async function downloadFile(path: string, filename: string, accept?: string) {
   const token = getToken();
   const res = await fetch(`${API}${path}`, {
@@ -169,7 +202,11 @@ export function downloadAudit(id: string, format: "json" | "csv") {
       "text/csv",
     );
   }
-  return downloadFile(`/meetings/${id}/audit`, `audit-${id}.json`, "application/json");
+  return downloadFile(
+    `/meetings/${id}/audit`,
+    `audit-${id}.json`,
+    "application/json",
+  );
 }
 
 // Download a DSAR lookup result as JSON (caller-scoped, kept lines only).

@@ -17,6 +17,7 @@ import {
   api,
   getToken,
   WS_URL,
+  streamUrl,
   Line,
   Participant,
   downloadAudit,
@@ -27,8 +28,6 @@ import { cn } from "../../lib/cn";
 import {
   AppShell,
   Card,
-  CardHeader,
-  CardTitle,
   Input,
   Switch,
   Button,
@@ -37,6 +36,7 @@ import {
   actionBorder,
   StatusDot,
   EmptyState,
+  SkeletonRow,
   ConfirmDialog,
   useToast,
 } from "../../components";
@@ -71,6 +71,9 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [ready, setReady] = useState(false);
   const [speaker, setSpeaker] = useState("you");
   const [talking, setTalking] = useState(false);
+  // Optimistic mic placeholder: set on EOU (release), cleared when the matching
+  // 'decision' arrives (or after a timeout so it never hangs).
+  const [pendingMic, setPendingMic] = useState(false);
   const [live, setLive] = useState<Decision[]>([]);
   const [saved, setSaved] = useState<Line[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -84,22 +87,37 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const [stopping, setStopping] = useState(false);
   const [confirmShred, setConfirmShred] = useState(false);
 
-  // Governed summary (feature 1) — only kept lines feed it (enforced server-side).
+  // Governed summary (feature 1) - only kept lines feed it (enforced server-side).
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryShredded, setSummaryShredded] = useState(false);
   const [summaryAt, setSummaryAt] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryErr, setSummaryErr] = useState("");
 
-  // Audit & compliance (feature 2) — content-free counts only.
+  // Audit & compliance (feature 2) - content-free counts only.
   const [audit, setAudit] = useState<AuditResponse | null>(null);
   const [auditErr, setAuditErr] = useState("");
   const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+  // The capture AudioContext is created outside a user gesture (on mount), so
+  // Chrome starts it SUSPENDED and onaudioprocess never fires. We stash it here
+  // and resume() it from start() (a real user gesture) to actually capture.
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const recRef = useRef(false);
   const spkRef = useRef("you");
   useEffect(() => { spkRef.current = speaker; }, [speaker]);
+
+  // Safety timeout for the optimistic mic placeholder so it drops itself if no
+  // decision arrives (~15s). Cleared when a decision lands or on unmount.
+  const pendingMicTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function clearPendingMic() {
+    if (pendingMicTimerRef.current) {
+      clearTimeout(pendingMicTimerRef.current);
+      pendingMicTimerRef.current = null;
+    }
+    setPendingMic(false);
+  }
 
   // Keep the latest toast fn in a ref so the WS effect (deps: [id]) can fire
   // toasts without re-subscribing on every render.
@@ -143,13 +161,42 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     seenPartsRef.current = new Map(parts.map((p) => [p.name, p.consent]));
   }
 
+  // UPSERT a single line into saved[] by idx, preserving idx order. A PENDING
+  // line is replaced in place by its final decision when the next event for the
+  // same idx arrives.
+  function upsertLine(line: Line) {
+    setSaved((prev) => {
+      const next = prev.slice();
+      const at = next.findIndex((l) => l.idx === line.idx);
+      if (at === -1) {
+        next.push(line);
+        next.sort((a, b) => a.idx - b.idx);
+      } else {
+        next[at] = line;
+      }
+      return next;
+    });
+  }
+
   async function refreshSaved() {
     try {
       const [lines, parts] = await Promise.all([api.getLines(id), api.participants(id)]);
       setSaved(lines);
       setParticipants(parts);
       diffParticipants(parts);
-    } catch {}
+    } catch { }
+    refreshAudit();
+  }
+
+  // Lighter refresh for the participant/consent + audit panels - the lines
+  // themselves arrive via SSE, but join/consent toasts and audit tallies still
+  // ride a poll (and a kick whenever an SSE line lands).
+  async function refreshParticipants() {
+    try {
+      const parts = await api.participants(id);
+      setParticipants(parts);
+      diffParticipants(parts);
+    } catch { }
     refreshAudit();
   }
   async function refreshAudit() {
@@ -166,7 +213,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       setSummary(s.summary);
       setSummaryShredded(s.shredded);
       setSummaryAt(s.generatedAt);
-    } catch {}
+    } catch { }
   }
   async function generateSummary() {
     setSummaryErr("");
@@ -198,7 +245,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       await api.shred(id);
       await refreshSaved();
       await loadSummary();
-    } catch {}
+    } catch { }
   }
   async function joinBot() {
     const url = meetingUrl.trim();
@@ -210,7 +257,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       const r = await api.joinMeeting(id, url, separate);
       setBotStatus(r.status);
       setBotLaunched(true);
-      toast.success("Bot launched — admit “Governance Bot” in the call");
+      toast.success("Bot launched - admit “Governance Bot” in the call");
     } catch (err: any) {
       setBotErr(err.message || "join failed");
       toast.error(err.message || "Couldn't launch the bot");
@@ -243,7 +290,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         setBotStatus(m.botStatus);
         if (m.botStatus !== "stopped") setBotLaunched(true);
       }
-    }).catch(() => {});
+    }).catch(() => { });
     refreshSaved();
     loadSummary();
 
@@ -264,6 +311,8 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         toastRef.current.success("Live engine connected");
       } else if (m.type === "decision") {
         const d = m as Decision;
+        // The optimistic placeholder resolves into the real decision.
+        clearPendingMic();
         setLive((p) => [d, ...p]);
         // Per-utterance confirmation for the mic / hold-to-talk path.
         toastDecision(d);
@@ -272,7 +321,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     ws.onclose = () => {
       setBadge("disconnected");
       setReady(false);
-      // Only surface an error for an unexpected drop after we'd connected —
+      // Only surface an error for an unexpected drop after we'd connected -
       // not for the normal page-unmount close.
       if (wsReadyRef.current && !wsUnmountingRef.current) {
         toastRef.current.error("Disconnected from the engine");
@@ -280,11 +329,12 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       wsReadyRef.current = false;
     };
 
-    let cleanup = () => {};
+    let cleanup = () => { };
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioCtxRef.current = ctx;
         const src = ctx.createMediaStreamSource(stream);
         const proc = ctx.createScriptProcessor(4096, 1, 1);
         proc.onaudioprocess = (ev) => {
@@ -292,30 +342,70 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           const inp = ev.inputBuffer.getChannelData(0);
           ws.send(f2i(downsample(inp, ctx.sampleRate)).buffer);
         };
+        // ScriptProcessor needs a downstream node to pump, but routing it to
+        // ctx.destination echoes the mic to the speakers. A 0-gain sink keeps
+        // the graph alive (so onaudioprocess fires) without any audible output.
+        const sink = ctx.createGain();
+        sink.gain.value = 0;
         src.connect(proc);
-        proc.connect(ctx.destination);
+        proc.connect(sink);
+        sink.connect(ctx.destination);
         cleanup = () => {
-          proc.disconnect(); src.disconnect();
+          proc.disconnect(); src.disconnect(); sink.disconnect();
           stream.getTracks().forEach((t) => t.stop()); ctx.close();
+          audioCtxRef.current = null;
         };
       } catch (err) {
         setBadge("mic blocked"); console.error(err);
       }
     })();
 
-    return () => { wsUnmountingRef.current = true; cleanup(); ws.close(); };
+    return () => {
+      wsUnmountingRef.current = true;
+      if (pendingMicTimerRef.current) clearTimeout(pendingMicTimerRef.current);
+      cleanup();
+      ws.close();
+    };
   }, [id]);
 
-  // Once a bot is in the call, audio arrives via Recall (not the mic), so poll the
-  // persisted lines + consent so the decision/participant panels fill in live.
+  // SSE push for saved lines (replaces the old 1.5s poll). The initial
+  // api.getLines(id) on mount handles backfill; from here on the server pushes
+  // each governed line. We UPSERT by idx so a PENDING line is replaced in place
+  // by its final decision. EventSource auto-reconnects; we close it on unmount.
+  useEffect(() => {
+    const es = new EventSource(streamUrl(id));
+    es.onmessage = (ev) => {
+      if (!ev.data) return;
+      try {
+        const line = JSON.parse(ev.data) as Line;
+        if (typeof line.idx !== "number") return;
+        upsertLine(line);
+      } catch { return; }
+      // A new line landed - refresh the consent + audit panels so join/consent
+      // toasts fire and the tallies stay current without a tight poll.
+      refreshParticipants();
+    };
+    // Swallow transient errors; EventSource reconnects on its own.
+    es.onerror = () => { };
+    return () => es.close();
+  }, [id]);
+
+  // Lighter poll for participants/consent + audit so join/consent toasts still
+  // work even when no SSE line has arrived yet (e.g. someone joins but is silent).
   useEffect(() => {
     if (!botLaunched) return;
-    const t = setInterval(refreshSaved, 2500);
+    const t = setInterval(refreshParticipants, 3000);
     return () => clearInterval(t);
   }, [botLaunched, id]);
 
   const start = () => {
-    if (!ready) return;
+    if (!ready) {
+      toast.info("Connecting to the live engine — give it a second…");
+      return;
+    }
+    // start() runs from a user gesture, so this resume() is allowed and flips
+    // the (otherwise SUSPENDED) AudioContext to running so capture actually fires.
+    audioCtxRef.current?.resume().catch(() => { });
     recRef.current = true; setTalking(true);
     wsRef.current?.send(JSON.stringify({ type: "speaker", id: spkRef.current }));
   };
@@ -323,6 +413,15 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     if (!recRef.current) return;
     recRef.current = false; setTalking(false);
     wsRef.current?.send(JSON.stringify({ type: "eou" }));
+    // Optimistically show a pending placeholder at the top of the live feed
+    // while the utterance is transcribed & governed. The next 'decision'
+    // message resolves it; a timeout drops it so it never hangs.
+    if (pendingMicTimerRef.current) clearTimeout(pendingMicTimerRef.current);
+    setPendingMic(true);
+    pendingMicTimerRef.current = setTimeout(() => {
+      pendingMicTimerRef.current = null;
+      setPendingMic(false);
+    }, 15000);
     setTimeout(refreshSaved, 1500); // pull the persisted line(s) after the decision lands
   };
   // Keyboard parity for hold-to-talk: Space/Enter holds while pressed.
@@ -410,7 +509,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               <ol className="flex flex-col gap-2 text-[13px] leading-relaxed text-fg-subtle">
                 <li className="flex gap-2.5">
                   <ConsentStep>1</ConsentStep>
-                  The bot joins your call — admit &ldquo;Governance Bot&rdquo; like any guest.
+                  The bot joins your call - admit &ldquo;Governance Bot&rdquo; like any guest.
                 </li>
                 <li className="flex gap-2.5">
                   <ConsentStep>2</ConsentStep>
@@ -418,7 +517,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                 </li>
                 <li className="flex gap-2.5">
                   <ConsentStep>3</ConsentStep>
-                  Only people who reply are recorded — no reply means they are never transcribed.
+                  Only people who reply are recorded - no reply means they are never transcribed.
                 </li>
                 <li className="flex gap-2.5">
                   <ConsentStep>4</ConsentStep>
@@ -448,23 +547,37 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
               variant={talking ? "danger" : "primary"}
               disabled={!ready}
               icon={<Mic size={16} aria-hidden="true" />}
-              aria-label="Hold to talk — press and hold, or hold Space, to record"
+              aria-label="Hold to talk - press and hold, or hold Space, to record"
               aria-pressed={talking}
-              className={cn("select-none", talking && "bg-danger/[0.12] border-danger")}
+              className={cn("touch-none select-none", talking && "bg-danger/[0.12] border-danger")}
               onMouseDown={start}
               onMouseUp={stop}
               onMouseLeave={stop}
               onKeyDown={onTalkKeyDown}
               onKeyUp={onTalkKeyUp}
-              onTouchStart={(e) => { e.preventDefault(); start(); }}
-              onTouchEnd={(e) => { e.preventDefault(); stop(); }}
+              onTouchStart={start}
+              onTouchEnd={stop}
             >
               {talking ? "Listening…" : "Hold to talk"}
             </Button>
-            <span className="text-[13px] text-fg-subtle">
-              Switch to &ldquo;Guest&rdquo; to see the consent gate decline it. Press and hold, or
-              hold Space while focused, to record.
-            </span>
+            {talking ? (
+              <span
+                role="status"
+                aria-live="assertive"
+                className="inline-flex items-center gap-2 rounded-full border border-danger bg-danger/[0.12] px-3 py-1.5 text-[13px] font-medium text-danger"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75 motion-reduce:hidden" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
+                </span>
+                Recording - speak now
+              </span>
+            ) : (
+              <span className="text-[13px] text-fg-subtle">
+                Switch to &ldquo;Guest&rdquo; to see the consent gate decline it. Press and hold, or
+                hold Space while focused, to record.
+              </span>
+            )}
           </Card>
         </section>
 
@@ -474,7 +587,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             Participants &amp; consent
           </SectionTitle>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
-            These toggles are read-only — consent is set in-meeting when each person replies
+            These toggles are read-only - consent is set in-meeting when each person replies
             &ldquo;+&rdquo;, not from here.
           </p>
           {participants.length === 0 ? (
@@ -516,7 +629,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           <SectionTitle icon={<ListChecks size={16} aria-hidden="true" />}>
             Live decisions
           </SectionTitle>
-          {live.length === 0 ? (
+          {live.length === 0 && !pendingMic ? (
             <EmptyState
               icon={<ListChecks size={20} aria-hidden="true" />}
               title="Nothing yet"
@@ -524,6 +637,9 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             />
           ) : (
             <div className="flex flex-col gap-2.5">
+              {pendingMic && (
+                <SkeletonRow label="you · transcribing & governing…" />
+              )}
               {live.map((d) => (
                 <div
                   key={d.idx}
@@ -570,7 +686,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           </div>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
             Kept text is stored encrypted per meeting; dropped/declined lines hold no text
-            (&ldquo;—&rdquo;). Crypto-shred destroys the meeting key — stored text becomes
+            (&ldquo;-&rdquo;). Crypto-shred destroys the meeting key - stored text becomes
             permanently unreadable.
           </p>
           {saved.length === 0 ? (
@@ -580,7 +696,16 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             />
           ) : (
             <div className="flex flex-col gap-2.5">
-              {saved.map((l) => (
+              {saved.map((l) =>
+                l.action === "PENDING" ? (
+                  // Placeholder line: the engine posts this before STT+LLM; the
+                  // next poll returns the same idx with a real action and
+                  // naturally replaces it. Kept in idx order with real lines.
+                  <SkeletonRow
+                    key={l.idx}
+                    label={`${l.speaker} · processing…`}
+                  />
+                ) : (
                 <div
                   key={l.idx}
                   className={cn(
@@ -605,19 +730,20 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
                     {l.shredded ? (
                       <>
                         <Lock size={13} aria-hidden="true" />
-                        unreadable — key destroyed
+                        unreadable - key destroyed
                       </>
                     ) : (
-                      l.text ?? "—"
+                      l.text ?? "-"
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </section>
 
-        {/* Governed summary — only kept lines feed it (enforced server-side). */}
+        {/* Governed summary - only kept lines feed it (enforced server-side). */}
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <SectionTitle icon={<FileText size={16} aria-hidden="true" />} className="mb-0">
@@ -634,14 +760,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             </Button>
           </div>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
-            Summarizes only kept lines (committed, redacted, or flagged) — dropped and
+            Summarizes only kept lines (committed, redacted, or flagged) - dropped and
             declined content never reaches the model.
           </p>
           {summaryErr && <p className="mb-3 text-[13px] text-danger">{summaryErr}</p>}
           {summaryShredded ? (
             <Card className="flex items-center gap-2 text-[13px] text-fg-subtle">
               <Lock size={14} aria-hidden="true" />
-              Summary unreadable — the meeting key was crypto-shredded.
+              Summary unreadable - the meeting key was crypto-shredded.
             </Card>
           ) : summary ? (
             <Card className="flex flex-col gap-3">
@@ -663,7 +789,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
           )}
         </section>
 
-        {/* Audit & compliance — content-free: counts only, never the words. */}
+        {/* Audit & compliance - content-free: counts only, never the words. */}
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <SectionTitle icon={<ClipboardCheck size={16} aria-hidden="true" />} className="mb-0">
@@ -693,7 +819,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <p className="mb-3 text-[13px] leading-relaxed text-fg-subtle">
-            Counts only — never the words. Per-participant decision tallies, consent state,
+            Counts only - never the words. Per-participant decision tallies, consent state,
             and an integrity hash over the decision log.
           </p>
           {auditErr && <p className="mb-3 text-[13px] text-danger">{auditErr}</p>}
@@ -789,7 +915,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         description={
           <>
             This destroys the meeting&rsquo;s encryption key. Every stored line becomes
-            permanently unreadable — there is no recovery, by design.
+            permanently unreadable - there is no recovery, by design.
           </>
         }
         confirmLabel="Destroy key"
@@ -802,7 +928,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   );
 }
 
-// Column order for the audit table — matches the ActionCounts keys.
+// Column order for the audit table - matches the ActionCounts keys.
 const AUDIT_ACTIONS: (keyof ActionCounts)[] = [
   "COMMIT",
   "REDACT",
@@ -841,7 +967,7 @@ function decisionToast(action: string): {
     case "DECLINE":
     default:
       return {
-        title: "Declined — no consent",
+        title: "Declined - no consent",
         variant: "neutral",
         showText: false,
       };

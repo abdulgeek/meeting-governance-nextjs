@@ -8,7 +8,7 @@ import { Button, type ButtonVariant } from "./Button";
 export type ConfirmDialogProps = {
   open: boolean;
   title: string;
-  /** Body copy — keep it explicit about consequences. */
+  /** Body copy - keep it explicit about consequences. */
   description?: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;

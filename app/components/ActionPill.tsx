@@ -17,7 +17,7 @@ type ActionStyle = {
 };
 
 /**
- * actionStyles — maps a governance action to its color treatment + icon.
+ * actionStyles - maps a governance action to its color treatment + icon.
  * Colors follow the Vault action-color map; light-mode overrides applied
  * via the `.light` arbitrary variants. Unknown actions fall back to slate.
  */

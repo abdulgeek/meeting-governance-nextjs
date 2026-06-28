@@ -17,7 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Governance — consent-first meeting recording",
+  title: "Governance - consent-first meeting recording",
   description:
     "Real-time meeting governance: decide what gets recorded before it's written down.",
 };

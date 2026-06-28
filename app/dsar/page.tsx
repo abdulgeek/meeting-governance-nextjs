@@ -26,7 +26,7 @@ import {
 
 // Self-service DSAR (feature 5). Owner-scoped: lookups and erasure span only the
 // caller's own meetings. identity = email-when-known else name. Erasure is
-// per-MEETING — it crypto-shreds whole meetings containing the person; true
+// per-MEETING - it crypto-shreds whole meetings containing the person; true
 // per-line/per-person erasure needs per-participant keys (future).
 export default function DsarPage() {
   const router = useRouter();
@@ -117,7 +117,7 @@ export default function DsarPage() {
             </Button>
           </form>
           <p className="mt-3 text-[13px] leading-relaxed text-fg-subtle">
-            Scoped to your meetings only — org-wide DSAR needs identity resolution
+            Scoped to your meetings only - org-wide DSAR needs identity resolution
             across owners (future). Erasure is per-meeting: it crypto-shreds whole
             meetings containing this person, not individual lines.
           </p>
@@ -214,7 +214,7 @@ export default function DsarPage() {
                               <span className="font-mono">#{l.idx}</span>
                               <ActionPill action={l.action} />
                             </div>
-                            <div className="text-sm text-fg">{l.text ?? "—"}</div>
+                            <div className="text-sm text-fg">{l.text ?? "-"}</div>
                           </div>
                         ))}
                       </div>
@@ -241,7 +241,7 @@ export default function DsarPage() {
         description={
           <>
             This crypto-shreds <strong>every meeting of yours containing</strong>{" "}
-            <span className="font-mono">{identity.trim()}</span> — destroying each
+            <span className="font-mono">{identity.trim()}</span> - destroying each
             meeting&rsquo;s encryption key. All stored lines in those meetings become
             permanently unreadable for everyone, not just this person. This is
             irreversible, by design.
